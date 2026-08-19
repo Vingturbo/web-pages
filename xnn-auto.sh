@@ -68,9 +68,10 @@ cat > $MAIN_DIR/xnn-index/index.html <<EOF
 <meta http-equiv="X-UA-Compatible" content="IE=edge">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <link rel="icon" href="favicon.png">
+        <link rel="stylesheet" href="info.css">
 <title>可爱的小男娘</title>
 </head>
-<body style="background-color:rgb(56,130,168);">
+<body>
     <h1>可爱的小男娘</h1>
 EOF
 echo "<h3>[$(date '+%Y-%m-%d %H:%M:%S')]-由自动化脚本构建</h3>" >> $MAIN_DIR/xnn-index/index.html
