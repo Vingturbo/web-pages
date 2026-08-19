@@ -11,5 +11,5 @@ This core language for this project is HTML, to view on many devices and the fas
 我们正在寻找贡献者。
 We are looking for contributors.
 
-如果你是中文母语者，请进入[中文版文档](./寻找贡献者.md)以查看完整招募内容。
-If you are using English, please go into [The English Documentation](./Looking_for_Contributor.md) to look the full text.
+如果你是中文母语者，请进入[中文版文档](https://github.com/Vingturbo/web-pages/wiki/寻找贡献者.md)以查看完整招募内容。
+If you are using English, please go into [The English Documentation](https://github.com/Vingturbo/web-pages/Looking_for_Contributor.md) to look the full text.
