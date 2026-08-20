@@ -1,0 +1,238 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+    <meta charset="UTF-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="icon" href="favicon.png">
+    <link rel="stylesheet" href="info.css">
+    <title>TOTP密钥生成</title>
+</head>
+
+<body>
+    <h1>密钥生成</h1>
+    <input type="text" id="keyInput" placeholder="输入密钥(Enter key)" value="JBSWY3DPEHPK3PXP">
+    <p id="keyOutput">生成密钥: ------</p>
+    <p>以下是自定义选项，如果不知道是干什么的，保持默认</p>
+    <hr>
+    <p>编码方式(Encoding):</p><select id="encodingSelect">
+        <option value="base32" selected>Base32(default)</option>
+        <option value="base64">Base64</option>
+        <option value="hex">HEX</option>
+        <option value="plain">plain(UTF-8)</option>
+    </select>
+    <p>哈希算法(Hash):</p><select id="hashSelect">
+        <option value="SHA-1" selected>HMAC-SHA1(default)</option>
+        <option value="SHA-256">HMAC-SHA-256</option>
+        <option value="SHA-512">HMAC-SHA-512</option>
+    </select>
+    <p>编码序段(Encoding Segment):</p><select id="segmentSelect">
+        <option value="big" selected>big(default)</option>
+        <option value="small">small</option>
+    </select>
+    <p>截断长度(Truncation Length):<input type="number" id="truncationLengthInput" value="6" min="1" max="9"></p>
+    <p>时间步长(Time Step):<input type="number" id="timeStepInput" value="30" min="1">s</p>
+    <p>T_0:<input type="number" id="timeOffsetInput" value="0">s</p>
+
+    <script>
+        // ===================== 全局 DOM 引用 =====================
+        const keyInput = document.getElementById('keyInput');
+        const encodingSelect = document.getElementById('encodingSelect');
+        const hashSelect = document.getElementById('hashSelect');
+        const segmentSelect = document.getElementById('segmentSelect');
+        const truncationLengthInput = document.getElementById('truncationLengthInput');
+        const timeStepInput = document.getElementById('timeStepInput');
+        const timeOffsetInput = document.getElementById('timeOffsetInput');
+        const keyOutput = document.getElementById('keyOutput');
+
+        // ===================== 解码工具 =====================
+        const Base32StrList = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
+
+        function decodeBase32(str) {
+            str = str.toUpperCase().replace(/[^A-Z2-7]/g, '');
+            let nik = 0n;
+            for (let i = 0; i < str.length; i++) {
+                nik = (nik << 5n) + BigInt(Base32StrList.indexOf(str[i]));
+            }
+            let result = '';
+            while (nik > 0n) {
+                const byte = Number(nik & 0xFFn);
+                nik >>= 8n;
+                result = String.fromCharCode(byte) + result;
+            }
+            return result;
+        }
+
+        function decodeSecret(encoding, secret) {
+            switch (encoding) {
+                case 'base32': return decodeBase32(secret);
+                case 'base64': return atob(secret);
+                case 'hex': {
+                    const clean = secret.replace(/[^0-9a-fA-F]/g, '');
+                    let result = '';
+                    for (let i = 0; i < clean.length; i += 2) {
+                        const hex = clean.substr(i, 2);
+                        if (hex.length === 2) {
+                            result += String.fromCharCode(parseInt(hex, 16));
+                        }
+                    }
+                    return result;
+                }
+                case 'plain': return secret;
+                default: throw new Error('不支持的编码');
+            }
+        }
+
+        // ===================== HMAC 手动实现（半手动，使用 crypto.subtle.digest） =====================
+        async function hmacManual(keyBytes, messageBytes, hashAlgo) {
+            // 确定块大小 B
+            let B;
+            if (hashAlgo === 'SHA-1' || hashAlgo === 'SHA-256') B = 64;
+            else if (hashAlgo === 'SHA-512') B = 128;
+            else throw new Error('不支持的哈希算法');
+
+            // 1. 密钥预处理
+            let key = keyBytes;
+            if (key.length > B) {
+                const hashBuffer = await crypto.subtle.digest(hashAlgo, key);
+                key = new Uint8Array(hashBuffer);
+            }
+            // 补零到 B 字节
+            const paddedKey = new Uint8Array(B);
+            paddedKey.set(key, 0);
+
+            // 2. 构造 ipad 和 opad
+            const ipad = new Uint8Array(B);
+            const opad = new Uint8Array(B);
+            for (let i = 0; i < B; i++) {
+                ipad[i] = paddedKey[i] ^ 0x36;
+                opad[i] = paddedKey[i] ^ 0x5C;
+            }
+
+            // 3. 内层哈希 H(ipad || message)
+            const innerData = new Uint8Array(ipad.length + messageBytes.length);
+            innerData.set(ipad, 0);
+            innerData.set(messageBytes, ipad.length);
+            const innerHashBuffer = await crypto.subtle.digest(hashAlgo, innerData);
+            const innerHash = new Uint8Array(innerHashBuffer);
+
+            // 4. 外层哈希 H(opad || innerHash)
+            const outerData = new Uint8Array(opad.length + innerHash.length);
+            outerData.set(opad, 0);
+            outerData.set(innerHash, opad.length);
+            const outerHashBuffer = await crypto.subtle.digest(hashAlgo, outerData);
+            return new Uint8Array(outerHashBuffer);
+        }
+
+        // ===================== TOTP 核心生成函数 =====================
+        async function generateTOTP() {
+            // 读取参数
+            const secret = keyInput.value.trim();
+            const encoding = encodingSelect.value;
+            const hashAlgo = hashSelect.value;      // 'SHA-1', 'SHA-256', 'SHA-512'
+            const segment = segmentSelect.value;    // 'big' 或 'small'
+            const digits = parseInt(truncationLengthInput.value, 10) || 6;
+            const step = parseInt(timeStepInput.value, 10) || 30;
+            const t0 = parseInt(timeOffsetInput.value, 10) || 0;
+
+            if (!secret) {
+                keyOutput.textContent = '生成密钥: 请输入密钥';
+                return;
+            }
+
+            try {
+                // 1. 解码密钥（得到二进制字符串）
+                const keyStr = decodeSecret(encoding, secret);
+
+                // 2. 转为 Uint8Array
+                const keyBytes = new Uint8Array(keyStr.length);
+                for (let i = 0; i < keyStr.length; i++) {
+                    keyBytes[i] = keyStr.charCodeAt(i);
+                }
+
+                // 3. 计算时间因子 T
+                const now = Math.floor(Date.now() / 1000);
+                const T = Math.floor((now - t0) / step);
+
+                // 4. T → 8字节数组（根据字节序）
+                const counter = new Uint8Array(8);
+                let temp = T;
+                if (segment === 'big') {
+                    for (let i = 7; i >= 0; i--) {
+                        counter[i] = temp & 0xff;
+                        temp = Math.floor(temp / 256);
+                    }
+                } else {
+                    for (let i = 0; i < 8; i++) {
+                        counter[i] = temp & 0xff;
+                        temp = Math.floor(temp / 256);
+                    }
+                }
+
+                // 5. 计算 HMAC
+                const hmac = await hmacManual(keyBytes, counter, hashAlgo);
+
+                // 6. 动态截断 (RFC 4226)
+                const offset = hmac[hmac.length - 1] & 0x0f;
+                const binary = ((hmac[offset] & 0x7f) << 24) |
+                    ((hmac[offset + 1] & 0xff) << 16) |
+                    ((hmac[offset + 2] & 0xff) << 8) |
+                    (hmac[offset + 3] & 0xff);
+
+                // 7. 取模得到最终验证码
+                const otp = String(binary % (10 ** digits)).padStart(digits, '0');
+                keyOutput.textContent = '生成密钥: ' + otp;
+
+            } catch (err) {
+                keyOutput.textContent = '生成密钥: 错误 - ' + err.message;
+                console.error(err);
+            }
+        }
+
+        // ===================== 自动刷新机制 =====================
+        let refreshTimer = null;
+        let lastSecond = -1;
+
+        function startAutoRefresh() {
+            if (refreshTimer) clearInterval(refreshTimer);
+            // 立即执行一次
+            generateTOTP();
+
+            refreshTimer = setInterval(() => {
+                const now = Math.floor(Date.now() / 1000);
+                // 每秒钟检查是否到了新的一秒（更新倒计时或验证码变化时刷新）
+                if (now !== lastSecond) {
+                    lastSecond = now;
+                    // 如果时间步长正好整除当前秒，或者每秒都更新（简单起见每秒都重新计算）
+                    // 但为了性能，可以只在步长边界重新计算，但为了显示剩余时间，我们这里每秒更新显示。
+                    // 为了让验证码在步长边界切换时及时更新，我们每次重新计算。
+                    generateTOTP();
+                }
+            }, 500); // 每500ms检查一次，避免过度频繁
+        }
+
+        // ===================== 绑定事件 =====================
+        const inputs = [keyInput, encodingSelect, hashSelect, segmentSelect,
+            truncationLengthInput, timeStepInput, timeOffsetInput];
+        inputs.forEach(el => {
+            el.addEventListener('change', startAutoRefresh);
+            el.addEventListener('input', function () {
+                // 防抖：用户输入时延迟重启
+                clearTimeout(this._timer);
+                this._timer = setTimeout(startAutoRefresh, 300);
+            });
+        });
+
+        // ===================== 启动 =====================
+        // 检查是否在安全上下文
+        if (window.isSecureContext === false) {
+            keyOutput.textContent = '生成密钥: 请在 HTTPS 或 localhost 下打开';
+            console.warn('Web Crypto API 需要安全上下文 (HTTPS 或 localhost)');
+        } else {
+            startAutoRefresh();
+        }
+    </script>
+</body>
+
+</html>
