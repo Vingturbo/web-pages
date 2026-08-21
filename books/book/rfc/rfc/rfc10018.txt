@@ -1,0 +1,1196 @@
+﻿
+
+
+
+Internet Engineering Task Force (IETF)                    R. Parekh, Ed.
+Request for Comments: 10018                                       Arrcus
+Updates: 6514, 7988                                        D. Voyer, Ed.
+Category: Standards Track                                    C. Filsfils
+ISSN: 2070-1721                                      Cisco Systems, Inc.
+                                                              H. Bidgoli
+                                                                   Nokia
+                                                                Z. Zhang
+                                                        Juniper Networks
+                                                             August 2026
+
+
+  Multicast and Ethernet VPN with Segment Routing Point-to-Multipoint
+                     (P2MP) and Ingress Replication
+
+Abstract
+
+   A Point-to-Multipoint (P2MP) tree in a Segment Routing (SR) domain
+   carries traffic from a Root to a set of Leaves.  This document
+   specifies extensions to BGP encodings and procedures for P2MP trees
+   and Ingress Replication used in BGP/MPLS IP VPNs and Ethernet VPNs
+   (EVPNs) in an SR domain.  This document updates RFCs 6514 and 7988.
+
+Status of This Memo
+
+   This is an Internet Standards Track document.
+
+   This document is a product of the Internet Engineering Task Force
+   (IETF).  It represents the consensus of the IETF community.  It has
+   received public review and has been approved for publication by the
+   Internet Engineering Steering Group (IESG).  Further information on
+   Internet Standards is available in Section 2 of RFC 7841.
+
+   Information about the current status of this document, any errata,
+   and how to provide feedback on it may be obtained at
+   https://www.rfc-editor.org/info/rfc10018.
+
+Copyright Notice
+
+   Copyright (c) 2026 IETF Trust and the persons identified as the
+   document authors.  All rights reserved.
+
+   This document is subject to BCP 78 and the IETF Trust's Legal
+   Provisions Relating to IETF Documents
+   (https://trustee.ietf.org/license-info) in effect on the date of
+   publication of this document.  Please review these documents
+   carefully, as they describe your rights and restrictions with respect
+   to this document.  Code Components extracted from this document must
+   include Revised BSD License text as described in Section 4.e of the
+   Trust Legal Provisions and are provided without warranty as described
+   in the Revised BSD License.
+
+Table of Contents
+
+   1.  Introduction
+     1.1.  Terminology
+     1.2.  Requirements Language
+   2.  SR P2MP P-Tunnel
+   3.  MVPN with SR
+     3.1.  SRv6 Multicast Endpoint Behaviors
+       3.1.1.  End.DTMC4: Decapsulation and Specific IPv4 Multicast
+               Table Lookup
+       3.1.2.  End.DTMC6: Decapsulation and Specific IPv6 Multicast
+               Table Lookup
+       3.1.3.  End.DTMC46: Decapsulation and Specific IP Multicast
+               Table Lookup
+     3.2.  MVPN with SR P2MP P-Tunnel
+       3.2.1.  PMSI Tunnel Attribute for SR P2MP P-Tunnel
+       3.2.2.  Auto-Discovery Procedures
+     3.3.  MVPN with Ingress Replication over SR
+       3.3.1.  SR-MPLS
+       3.3.2.  SRv6
+   4.  EVPN with SR
+     4.1.  EVPN with SR P2MP P-Tunnel
+       4.1.1.  PMSI Tunnel Attribute for SR P2MP P-Tunnel
+       4.1.2.  Split-Horizon Filtering for ES Multihoming
+       4.1.3.  Auto-Discovery Procedures
+     4.2.  EVPN with Ingress Replication over SR
+       4.2.1.  SR-MPLS
+       4.2.2.  SRv6
+   5.  IANA Considerations
+   6.  Security Considerations
+   7.  References
+     7.1.  Normative References
+     7.2.  Informative References
+   Acknowledgements
+   Contributors
+   Authors' Addresses
+
+1.  Introduction
+
+   "Multicast in MPLS/BGP IP VPNs" [RFC6513] and "BGP Encodings and
+   Procedures for Multicast in MPLS/BGP IP VPNs" [RFC6514] specify
+   procedures that allow a network operator to provide Multicast VPN
+   (MVPN) service to its customers.  Multicast traffic from a customer
+   is tunneled across the service provider network over Provider Tunnels
+   (P-tunnels).  P-tunnels can be instantiated using different transport
+   mechanisms.  For example, a service provider network that uses
+   Segment Routing (SR) can use an SR Point-to-Multipoint (P2MP) tree
+   defined by an SR P2MP Policy [RFC9960] or SR P2MP Ingress Replication
+   (IR) to instantiate P-tunnels for MVPN.  This document refers to a
+   P-tunnel realized by an SR P2MP Policy as an SR P2MP P-tunnel.  SR
+   P2MP P-tunnels can be instantiated for both Segment Routing over MPLS
+   (SR-MPLS) [RFC8660] and Segment Routing over IPv6 (SRv6) [RFC8986]
+   [RFC8754].
+
+   An SR P2MP tree is defined by an SR P2MP Policy [RFC9960] and
+   instantiated via a controller such as a Path Computation Element
+   (PCE).  An SR P2MP Policy consists of a Root, a set of Leaf nodes,
+   and a set of candidate paths (CPs) with optional set of constraints
+   and/or optimization objectives to be satisfied by the SR P2MP tree.
+   A CP has zero or more P2MP tree instances (PTIs).
+
+   This document specifies extensions to BGP auto-discovery procedures
+   specified in [RFC6514] for P-tunnels constructed with a PTI.  Use of
+   Protocol Independent Multicast (PIM) for auto-discovery is outside
+   the scope of this document.  Support for customer Bidirectional PIM
+   (BIDIR-PIM) is also outside the scope of this document.
+
+   This document extends procedures in [RFC7988] for MVPN service with
+   IR over an SR-MPLS data plane with a Service Level Agreement (SLA).
+   New procedures are defined for MVPN service with IR over an SRv6 data
+   plane with or without an SLA.
+
+   This document defines new SRv6 Endpoint behaviors [RFC8986] used for
+   MVPN with SR P2MP and IR P-tunnels.
+
+   For BGP MPLS-Based EVPN specified in [RFC7432] and updated in
+   [RFC9572], P-tunnels are advertised for handling multi-destination
+   traffic.  These P-tunnels can be instantiated by SR-MPLS or SRv6 P2MP
+   trees.
+
+   The reader is expected to be familiar with [RFC6513] and [RFC6514]
+   for MVPN procedures.  For EVPN procedures, refer to [RFC7432].
+
+   Scalability, operational, and troubleshooting considerations for SR
+   P2MP trees and Replication segments are described in [RFC9960] and
+   [RFC9524], respectively.  Operations, Administration, and Maintenance
+   (OAM) ping and traceroute procedures for SR P2MP Policy using the SR-
+   MPLS data plane are specified in [RFC9961].
+
+1.1.  Terminology
+
+   The following terms are used as defined in [RFC8402]:
+
+   *  Segment Routing (SR)
+
+   *  Segment Identifier (SID)
+
+   *  SR domain
+
+   *  SR-MPLS
+
+   *  SRv6
+
+   *  SRv6 SID
+
+   The following term is used as defined in [RFC8754]:
+
+   *  Segment Routing Header (SRH)
+
+   The following terms are used as defined in [RFC9524]:
+
+   *  Replication segment
+
+   *  Replication-SID
+
+   *  Root node
+
+   *  Leaf node
+
+   *  Bud node
+
+   *  Intermediate Replication node
+
+   The following terms are used as defined in [RFC9960]:
+
+   *  SR P2MP Policy
+
+   *  Tree-ID
+
+   *  Candidate path (CP)
+
+   *  P2MP tree instance (PTI)
+
+   *  Tree-SID
+
+   For MVPN, the following terms are used as defined in [RFC6513] and
+   [RFC6514]:
+
+   *  P-Multicast Service Interface (PMSI)
+
+   *  P-tunnel
+
+   *  PMSI Tunnel Attribute (PTA)
+
+   *  Auto-Discovery (A-D) routes
+
+   *  Intra-AS I-PMSI A-D
+
+   *  Inter-AS I-PMSI A-D
+
+   *  S-PMSI A-D
+
+   *  Leaf A-D route
+
+   For EVPN, the following terms are used as defined in [RFC7432],
+   [RFC9251], and [RFC9572]:
+
+   *  EVPN Instance (EVI)
+
+   *  Ethernet Segment (ES)
+
+   *  Ethernet Segment Identifier (ESI)
+
+   *  Inclusive Multicast Ethernet Tag (IMET) route
+
+   *  Selective Multicast Ethernet Tag (SMET) route
+
+   *  Broadcast, Unknown Unicast or Multicast (BUM)
+
+   *  S-PMSI
+
+   *  Leaf A-D route
+
+1.2.  Requirements Language
+
+   The key words "MUST", "MUST NOT", "REQUIRED", "SHALL", "SHALL NOT",
+   "SHOULD", "SHOULD NOT", "RECOMMENDED", "NOT RECOMMENDED", "MAY", and
+   "OPTIONAL" in this document are to be interpreted as described in
+   BCP 14 [RFC2119] [RFC8174] when, and only when, they appear in all
+   capitals, as shown here.
+
+2.  SR P2MP P-Tunnel
+
+   For MVPN or EVPN, Provider Edge (PE) routers can steer customer
+   traffic into a P-tunnel realized by an SR-MPLS or SRv6 PTI.  An SR
+   PTI is instantiated by a CP of an SR P2MP Policy [RFC9960].  A
+   P-tunnel is signaled in MVPN or EVPN A-D routes using the BGP PMSI
+   Tunnel Attribute (PTA) [RFC6514].  The PTA identifies the P-tunnel
+   that is used to instantiate a PMSI.
+
+   +---------------------------------+
+   |            INGRESS PE           |                   +------------+
+   |  +----------+     +----------+  |                   |            |
+   |  |          |     |  SR P2MP |  |    PCEP/BGP/etc.  |            |
+   |  | MVPN/EVPN+---->|  Policy  |  +------------------>| CONTROLLER |
+   |  |  Module  |     |  Module  |  |                   |            |
+   |  +----------+     +----------+  |                   |            |
+   |                                 |                   +------------+
+   +---------------------------------+
+
+            Figure 1: MVPN/EVPN Interaction with SR P2MP Policy
+
+   The figure above shows the interaction between the conceptual MVPN or
+   EVPN module and SR P2MP Policy module on an ingress PE.  The ingress
+   PE participates in MVPN or EVPN AD procedures and interacts with the
+   SR P2MP Policy module as shown above to create and update the SR P2MP
+   Policy, CP, and the Leaf set of SR P2MP policies.  The SR P2MP Policy
+   module interacts with a controller using protocols such as the Path
+   Computation Element Communication Protocol (PCEP) [SR-P2MP-PCEP],
+   BGP, the Network Configuration Protocol (NETCONF), etc., which are
+   outside the scope of this document.
+
+   An ingress PE creates a CP of an SR P2MP Policy in the SR P2MP Policy
+   module upon provisioning of the MVPN or EVPN module for the SR P2MP
+   P-tunnel or based on events or policy, such as mapping MVPN or EVPN
+   flow to a new SR P2MP P-tunnel.  This CP can have optional traffic
+   engineering constraints and/or an optimization objective by
+   provisioning or by a local policy.  The SR P2MP Policy module signals
+   the CP along with the constraints and optimization objective to the
+   controller using one of the protocols mentioned above.  The ingress
+   PE deletes the CP of the SR P2MP Policy from the SR P2MP Policy
+   module when the SR P2MP P-tunnel is not longer required.  The SR P2MP
+   Policy module signals deletion of the CP of the SR P2MP Policy to the
+   controller.
+
+   An ingress PE participates in the MVPN or EVPN A-D procedures defined
+   in this document to discover Leaf nodes of an SR P2MP P-tunnel via
+   various A-D routes.  The MVPN or EVPN module on the ingress PE
+   updates the Leaf set of the SR P2MP Policy corresponding to the
+   P-tunnel in the SR P2MP Policy module.  The SR P2MP Policy module
+   signals the updated Leaf set to the controller using one of the
+   protocols mentioned above.
+
+   An egress PE associates an MVPN or EVPN A-D route with an MVPN or
+   EVPN context and informs the SR P2MP Policy module to join the SR
+   P2MP P-tunnel as a Leaf or a Bud node.
+
+   Given a Leaf set of an SR P2MP Policy and a CP with constraints and
+   an optimization objective, the controller computes and instantiates
+   the PTI on the nodes that are part of the tree by stitching
+   Replication segments [RFC9524] at the Root (ingress PE) node,
+   intermediate replication nodes, and Leaf nodes (egress PEs).  A
+   Replication segment of a PTI can be instantiated by various methods
+   such as BGP, PCEP, NETCONF, etc., which are outside the scope of this
+   document.  This PTI of the SR P2MP Policy instantiates the P-tunnel
+   advertised by the MVPN or EVPN A-D routes.
+
+   The Tree-SID is the unique data plane identifier of the PTI.  The
+   Root node encapsulates the payload in the Tree-SID to steer it into
+   the PTI.  The Provider (P) routers replicate the encapsulated payload
+   using Replication segments towards the Leaf nodes of the PTI.  The
+   Leaf nodes of the PTI dispose the Tree-SID and deliver the payload.
+   A Leaf node derives the MVPN or EVPN instance for delivering the
+   payload from either the Tree-SID or another context encoded in the
+   packet.
+
+   Note that an ingress PE can deliver an MVPN or EVPN payload to the
+   egress PEs using IR over SR-MPLS or SRv6.  The SR P2MP Policy module
+   and controller do not participate in IR.
+
+3.  MVPN with SR
+
+   MVPN service can be provided using SR P2MP trees or IR over either an
+   SR-MPLS or SRv6 data plane.
+
+3.1.  SRv6 Multicast Endpoint Behaviors
+
+   The following SRv6 Endpoint behaviors can be associated with the SRv6
+   Multicast Service SID used for MVPN with SR P2MP and IR P-tunnels.
+
+3.1.1.  End.DTMC4: Decapsulation and Specific IPv4 Multicast
+        Table Lookup
+
+   The "Endpoint with Decapsulation and IPv4 Multicast Table Lookup"
+   behavior (End.DTMC4 for short) is functionally identical to the
+   End.DT4 behavior specified in [RFC8986], except that the forwarding
+   lookup MUST be performed in the IPv4 multicast routing table rather
+   than the IPv4 unicast routing table.
+
+   This behavior MUST only be associated with the SRv6 Multicast Service
+   SID carried in AFI/SAFI 1/129 (MVPN-IPv4) A-D routes.
+
+3.1.2.  End.DTMC6: Decapsulation and Specific IPv6 Multicast
+        Table Lookup
+
+   The "Endpoint with Decapsulation and IPv6 Multicast Table Lookup"
+   behavior (End.DTMC6 for short) is functionally identical to the
+   End.DT6 behavior specified in [RFC8986], except that the forwarding
+   lookup MUST be performed in the IPv6 multicast routing table rather
+   than the IPv6 unicast routing table.
+
+   This behavior MUST only be associated with the SRv6 Multicast Service
+   SID carried in AFI/SAFI 2/129 (MVPN-IPv6) A-D routes.
+
+3.1.3.  End.DTMC46: Decapsulation and Specific IP Multicast Table Lookup
+
+   The "Endpoint with Decapsulation and IP Multicast Table Lookup"
+   behavior (End.DTMC46 for short) is functionally identical to the
+   End.DT4 and End.DT6 behaviors specified in [RFC8986], except that the
+   forwarding lookup MUST be performed in the IP multicast routing table
+   rather than in an IP unicast routing table.
+
+   This behavior MUST only be associated with the SRv6 Multicast Service
+   SID carried in AFI/SAFI 1/129 (MVPN-IPv4) or 2/129 (MVPN-IPv6) A-D
+   routes.
+
+3.2.  MVPN with SR P2MP P-Tunnel
+
+   [RFC6514] defines procedures for discovering PEs participating in a
+   given MVPN and binding customer multicast flows to specific
+   P-tunnels.  This section specifies modifications to these procedures
+   for SR P2MP P-tunnels.  The Intra-AS I-PMSI, Inter-AS I-PMSI, and
+   S-PMSI A-D routes have the PTA that specifies the SR P2MP tree
+   P-tunnel.  In this section, the term "SR P2MP" refers to both SR-MPLS
+   and SRv6 data planes.
+
+3.2.1.  PMSI Tunnel Attribute for SR P2MP P-Tunnel
+
+   A PTA for an SR P2MP P-tunnel is constructed as specified below.
+
+   *  Tunnel Type: One of the following SR P2MP P-tunnel types (from the
+      "P-Multicast Service Interface Tunnel (PMSI Tunnel) Tunnel Types"
+      registry).
+
+      -  0x0C for SR-MPLS P2MP Tree
+
+      -  0x0D for SRv6 P2MP Tree
+
+   *  Flags: See Section 3.2.2 for use of the "Leaf Information
+      Required" flag.
+
+   *  MPLS Label: See Section 4.1.1.1.
+
+   *  Tunnel Identifier: The SR P2MP P-tunnel identifies an SR P2MP
+      Policy with the identifier <Root, Tree-ID> [RFC9960] encoded in
+      the exact order below:
+
+      -  Tree-ID: A 32-bit unsigned value that uniquely identifies an SR
+         P2MP Policy at the Root.
+
+      -  Root: An IP address identifying the Root of the SR P2MP Policy.
+         This can be either an IPv4 or IPv6 address.  The address type
+         can be inferred from the PTA length.
+
+   A PTA with a SR P2MP P-tunnel is provisioned with the Tunnel Type for
+   SR-MPLS or SRv6 P2MP trees.  An implementation SHOULD advertise a PTA
+   with SR P2MP P-tunnel only when the underlying SR-MPLS or SRv6 data
+   plane is supported.  The procedures for provisioning and
+   determination of data plane support for SR-MPLS or SRv6 are outside
+   scope of this document.
+
+   A P-tunnel can be segmented or non-segmented (see Section 8 of
+   [RFC6513]).  When a P-tunnel is non-segmented, the PTA is created by
+   PE router at the Root of an SR P2MP tree.  For segmented P-tunnels,
+   each segment can be instantiated by a different P-tunnel type.  If a
+   segment is instantiated using a P2MP tree, the router at the Root of
+   an SR P2MP tree creates the PTA.
+
+3.2.1.1.  MPLS Label
+
+   When an SR P2MP P-tunnel is not shared across MVPNs, i.e., there is
+   one-to-one association between an MVPN instance and an SR P2MP
+   P-tunnel, the MPLS Label field is set to zero as per [RFC6514] for
+   both SR-MPLS and SRv6.  In this case, the SR-MPLS or SRv6 Tree-SID of
+   the PTI of the SR P2MP Policy advertised in the P-tunnel is
+   sufficient to identify the MVPN instance for delivering the payload.
+
+   [RFC6514] allows a PE to aggregate two or more MVPNs onto one SR P2MP
+   P-tunnel by advertising the same P-tunnel in PTA of A-D routes of
+   different MVPNs.  In this case, the MPLS Label field of the PTA is
+   filled to provide a context bound to a specific MVPN instance as
+   described in sections below.  The value in this field is used by
+   egress PEs to identify the MVPN instance for delivering the payload
+   encapsulated in SR-MPLS or SRv6.
+
+3.2.1.1.1.  SR-MPLS
+
+   When an SR P2MP P-tunnel is shared across two or more MVPNs in an SR-
+   MPLS domain, the MPLS Label field of a PTA advertised in an A-D route
+   MUST contain an upstream-assigned MPLS label [RFC5331] [RFC6513] or a
+   label assigned from a global context, such as the Domain-wide Common
+   Block (DCB) as specified in [RFC9573], that the advertising PE has
+   bound to the MVPN.
+
+   When an ingress PE steers the payload into a shared SR P2MP P-tunnel
+   PTI, this MPLS label MUST be imposed before the MPLS label
+   representing the Tree-SID.  The trade-off of sharing an SR P2MP
+   P-tunnel across MVPNs is that two MPLS labels have to be imposed on
+   ingress and disposed on egress.
+
+   The egress PEs of a shared SR P2MP P-tunnel use the MPLS label to
+   determine the MVPN instance for delivering the payload.
+
+3.2.1.1.2.  SRv6
+
+   When an SR P2MP P-tunnel is shared across two or more MVPNs in an
+   SRv6 domain [RFC8986], the MPLS Label field of a PTA advertised in an
+   A-D route MUST contain an upstream-assigned SRv6 Multicast Service
+   SID (Section 3.1) that the advertising PE has bound to the MVPN or an
+   SRv6 Multicast Service SID assigned from a global context; this
+   follows same concept of the DCB label as specified in [RFC9573].  The
+   high-order 20 bits of the MPLS Label field carry the whole or a
+   portion of the Function part of the SRv6 Multicast Service SID when
+   the Transposition Scheme of encoding as defined in [RFC9252] is used.
+   When using the Transposition Scheme, the Transposition Length of the
+   SRv6 SID Structure Sub-Sub-TLV of the SRv6 Prefix-SID attribute (see
+   below) MUST be less than or equal to 20 and less than or equal to the
+   Function Length.  When the Transposition Scheme is not used, the MPLS
+   Label field MUST be set to zero as per [RFC6514], and Transposition
+   Length MUST be zero.
+
+   The advertising ingress PE MUST attach a BGP Prefix-SID attribute
+   [RFC8669] to Intra-AS I-PMSI, Inter-AS I-PMSI, or S-PMSI A-D routes
+   with the SRv6 L3 Service TLV [RFC9252] to signal the SRv6 Multicast
+   Service SID.  The SRv6 SID Information Sub-TLV carries the SRv6
+   Multicast Service SID in the SRv6 SID Value field.  The SRv6 Endpoint
+   behavior of the SRv6 SID Information Sub-TLV encodes one of
+   End.DTMC4, End.DTMC6, or End.DTMC46 code point values.  The SRv6 SID
+   Structure Sub-Sub-TLV encodes the structure of the SRv6 Multicast
+   Service SID.  If the Transposition Scheme is used, the offset and
+   length of SRv6 Multicast Endpoint function of the SRv6 Multicast
+   Service SID is set in the Transposition Length and Transposition
+   Offset fields of this sub-sub-TLV.  Otherwise, the Transposition
+   Length and Offset fields MUST be set to zero.  The locator (LOC) of
+   an SRv6 Multicast Service SID, which is assigned from a global
+   context, such as DCB, is outside the scope of this document.
+
+   The advertising ingress PE, which is the Root node of the shared SR
+   P2MP P-tunnel, MUST encapsulate a payload in an outer IPv6 header
+   with an SRH in which the SRv6 Multicast Service SID MUST be the last
+   segment in the segment list (note the SRv6 Multicast Service SID may
+   be the only segment in the SRH).  If the Transposition Scheme is
+   used, the ingress PE MUST merge the Function part of the MPLS Label
+   field of the PTA with the SRv6 SID in the SRv6 SID Information Sub-
+   TLV using the Transposition Offset and Length fields from the SRv6
+   SID Structure Sub-Sub-TLV to create the SRv6 Multicast Service SID.
+
+   An egress PE of the shared SR P2MP P-tunnel uses the SRv6 Multicast
+   Service SID in the SRH to determine the MVPN instance in which the
+   customer payload is to be delivered.  The egress PE, in the role of
+   Leaf or Bud node of the Replication segment associated with the
+   shared SR P2MP P-tunnel tree, uses the "look at next SID in SRH"
+   behavior [RFC9524] to process the SRv6 Multicast Service SID.  An
+   egress PE MUST NOT install the SRv6 Multicast Service SID in its
+   Forwarding Information Base (FIB), i.e., it MUST NOT forward packets
+   based on the Locator portion of the SRv6 Multicast Service SID
+   because the SID is not significant on the ingress PE.
+
+3.2.2.  Auto-Discovery Procedures
+
+   MVPN A-D procedures specified in [RFC6514] are used to advertise an
+   SR P2MP P-tunnel and discover the Leaf nodes of the SR P2MP Policy
+   associated with the P-tunnel.  This section describes the processing
+   of MVPN A-D routes to create, update, and tear down an SR P2MP Policy
+   of an SR P2MP P-tunnel as described in Section 2.
+
+3.2.2.1.  Creation of CP of SR P2MP Policy
+
+   A PE interacts with an SR P2MP Policy module to create a CP, with
+   optional traffic engineering constraints and an optional optimization
+   objective, of an SR P2MP Policy when it originates an Intra-AS I-PMSI
+   A-D route [RFC6514], an Inter-AS I-PMSI A-D route for an intra-AS
+   segment [RFC6514], an S-PMSI A-D route [RFC6514], or a "wildcard"
+   S-PMSI A-D route [RFC6625] with a PTA that has an SR P2MP P-tunnel
+   type.
+
+   The CP of the SR P2MP Policy associated with an SR P2MP P-tunnel is
+   deleted from the SR P2MP Policy module when a PE withdraws the Intra-
+   AS I-PMSI, Inter-AS I-PMSI, or S-PMSI A-D route advertising that
+   P-tunnel.
+
+   When a PE originates an Inter-AS I-PMSI or an S-PMSI A-D route with a
+   PTA that has an SR P2MP P-tunnel type, it MUST set the "Leaf
+   Information Required" flag in the PTA.
+
+3.2.2.2.  Discovery of Leaf Nodes
+
+   An ingress PE that advertises an MVPN A-D route with a PTA that has
+   an SR P2MP P-tunnel type discovers a Leaf node of the SR P2MP Policy
+   associated with the SR P2MP P-tunnel when it imports an Intra-AS
+   I-PMSI A-D route [RFC6514] or Leaf A-D route [RFC6514] from an egress
+   PE.  The ingress PE adds the egress PE as a Leaf node in the SR P2MP
+   Policy module.
+
+   An ingress PE removes an egress PE from the Leaf set of the SR P2MP
+   Policy when the egress PE withdraws the Intra-AS I-PMSI or the Leaf
+   A-D route.
+
+   An egress PE informs the SR P2MP Policy module to join the SR P2MP
+   Policy as a Leaf or Bud node when it imports an Intra-AS I-PMSI A-D
+   route, an Inter-AS I-PMSI A-D route, or an S-PMSI A-D route from an
+   ingress PE that has a PTA with an SR P2MP P-tunnel type.  The egress
+   PE MUST originate a Leaf A-D route if the "Leaf Information Required"
+   flag is set in the PTA.
+
+   An egress PE withdraws itself as a Leaf or Bud node of the SR P2MP
+   Policy when the ingress PE withdraws an Intra-AS I-PMSI, Inter-AS
+   I-PMSI, or S-PMSI A-D route.  The egress PE MUST withdraw the Leaf
+   A-D it had originated earlier in response to the "Leaf Information
+   Required" flag in the PTA.
+
+3.3.  MVPN with Ingress Replication over SR
+
+   A PE can provide MVPN service using IR over SR.  The payload is
+   encapsulated in SR-MPLS or SRv6 at an ingress PE and replicated with
+   each copy sent to an egress PE via unicast.
+
+   "Ingress Replication Tunnels in Multicast VPN" [RFC7988] specifies
+   procedures that can be reused to provide MVPN service with IR in an
+   SR domain.  A PE advertises Intra-AS I-PMSI A-D, Inter-AS I-PMSI A-D,
+   or Selective PMSI A-D and Leaf A-D routes with the PTA for IR.
+   Egress PEs join as Leaf nodes using Intra-AS I-PMSI A-D or Leaf A-D
+   routes.  The procedures of [RFC7988] provide an MVPN IR service with
+   best-effort unicast connectivity.
+
+   This document adds procedures for providing an MVPN IR service with
+   an SLA from an ingress PE to an egress PE both for SR-MPLS and SRv6.
+   This document extends the BGP Update message of AFI/SAFI 1/129 (MVPN-
+   IPv4) and 2/129 (MVPN-IPv6) to carry the Color Extended Community as
+   specified in [RFC9012] and the Color-Only Type extension specified in
+   Section 3 of [RFC9830].  An egress PE colors the Leaf or Intra-AS
+   I-PMSI A-D route with a Color Extended Community.  The ingress PE
+   replicates MVPN customer payload to the egress PE by steering it into
+   an SR-TE policy according to Section 8 of [RFC9256].  The ingress PE
+   encapsulates the payload packet into a segment list of the matching
+   SR-TE policy to the egress PE along with the IR MPLS label or SRv6
+   Multicast Service SID received from the egress PE.
+
+   Note that the Color Extended Community is not used with an MVPN SR
+   P2MP P-tunnel.  For MVPN with an SR P2MP P-tunnel, the ingress PE
+   dictates the traffic engineering treatment by specifying the
+   constraints and the metric optimization in the CP of the SR P2MP
+   Policy corresponding to the P-tunnel on the ingress PE.  This is
+   necessary because packets are replicated in the PTI; therefore, it is
+   not possible to have differing traffic engineering treatment towards
+   each egress PE (Leaf node) of the PTI.
+
+3.3.1.  SR-MPLS
+
+   The PTA carried in Intra-AS I-PMSI A-D, Inter-AS I-PMSI A-D, S-PMSI
+   A-D, and Leaf A-D routes is constructed as specified in [RFC7988].
+
+   MVPN IR service with SLA over SR-MPLS data plane can be provided by
+   using the Color Extended Community as described above.  Suppose an
+   egress PE, say PE2, sends Leaf A-D route with Extended Color
+   Community C1 with Color-Only Type 0 and IR label L10 to the ingress
+   PE1.  Assume the segment list of SR-TE policy (C1, PE2) at ingress
+   PE1 is <L1, L2, L3>.  PE1 will encapsulate the MVPN payload into the
+   MPLS label stack <L1, L2, L3, L10> with L10 as the Bottom-of-Stack
+   (BoS) label.
+
+3.3.2.  SRv6
+
+   The procedures specified in [RFC7988], with the modifications defined
+   in this section, are used to provide MVPN IR service over SRv6.
+
+   The PTA carried in Intra-AS I-PMSI A-D, Inter-AS I-PMSI A-D,
+   Selective PMSI A-D, and Leaf A-D routes is constructed as specified
+   in [RFC7988] with the following modifications:
+
+   *  Tunnel Type: "Ingress Replication" as per [RFC6514].
+
+   *  MPLS Label: The high-order 20 bits of this field carry the whole
+      or a portion of the Function part of the SRv6 Multicast Service
+      SID when the Transposition Scheme is used for encoding as defined
+      in [RFC9252].  When using the Transposition Scheme, the
+      Transposition Length of the SRv6 SID Structure Sub-Sub-TLV of the
+      SRv6 Prefix-SID attribute (see below) MUST be less than or equal
+      to 20 and less than or equal to the Function Length.  When the
+      Transposition Scheme is not used, the MPLS Label field MUST be set
+      to zero, and Transposition Length MUST be zero.
+
+   Sections 6 and 7 of [RFC7988] describe considerations and procedures
+   for allocating MPLS labels for IR P-tunnels.  These considerations
+   also apply to allocation of a SRv6 Multicast Service SID for SRv6 IR.
+
+   To join an SRv6 IR P-tunnel advertised in the PTA of Intra-AS I-PMSI
+   A-D, Inter-AS I-PMSI A-D, or Selective S-PMSI A-D routes, an egress
+   PE constructs a Leaf A-D or Intra-AS I-PMSI A-D route as described in
+   [RFC7988] with the modified PTA above.  The egress PE MUST attach a
+   BGP Prefix-SID attribute [RFC8669] with a Leaf A-D or Intra-AS I-PMSI
+   A-D route with the SRv6 L3 Service TLV [RFC9252] to signal the SRv6
+   Multicast Service SID (Section 3.1).  The SRv6 SID Information Sub-
+   TLV carries the SRv6 Multicast Service SID in the SRv6 SID Value
+   field.  The SRv6 Endpoint behavior of the SRv6 SID Information Sub-
+   TLV MUST encode one of the End.DTMC4, End.DTMC6, or End.DTMC46 code
+   point values.  The SRv6 SID Structure Sub-Sub-TLV encodes the
+   structure of the SRv6 Multicast Service SID.  If the Transposition
+   Scheme is used, the offset and length of SRv6 Multicast Endpoint
+   function of the SRv6 Multicast Service SID is set in the
+   Transposition Length and Transposition Offset fields of this sub-sub-
+   TLV.  Otherwise, the Transposition Length and Offset fields MUST be
+   set to zero.  The BGP Prefix SID attribute with the SRv6 L3 Service
+   TLV in an Intra-AS I-PMSI or Leaf A-D route indicates to the ingress
+   PE that the egress PE supports SRv6.
+
+   The SRv6 Multicast Service SID MUST be routable within the AS of the
+   egress PE.  As per [RFC7988], the ingress PE uses the Tunnel
+   Identifier of PTA to determine the unicast tunnel to use in order to
+   send data to the egress PE.  For SRv6 IR, the ingress PE MUST use the
+   SRv6 Multicast Service SID to determine the unicast tunnel to be
+   used.  For best-effort MVPN IR service or SLA-based MVPN IR service
+   using the IGP Flexible Algorithm, the ingress PE MUST encapsulate the
+   payload in an outer IPv6 header, with the SRv6 Multicast Service SID
+   provided by the egress PE used as the destination address.  If the
+   Transposition Scheme is used, the ingress PE MUST merge the Function
+   part of the MPLS Label field of the PTA with SRv6 SID in the SRv6 SID
+   Information Sub-TLV using the Transposition Offset and Length fields
+   from the SRv6 SID Structure Sub-Sub-TLV to create the SRv6 Multicast
+   Service SID.
+
+   MVPN IR service with SLA over SRv6 can be provided by using the Color
+   Extended Community as described above.  Suppose an egress PE, say
+   PE2, sends Leaf A-D route with Extended Color community C1 with
+   Color-Only Type 0 and SRv6 Multicast Service SID S10 to ingress PE1.
+   Assume the segment list of the SR-TE policy (C1, PE2) at ingress PE1
+   is <S1, S2, S3>.  PE1 will encapsulate a payload into an IPv6 header
+   with SRH (PE1, S1) (S10, S3, S2; SL=3) (payload).
+
+4.  EVPN with SR
+
+   BGP MPLS-Based EVPN, specified in [RFC7432], specifies the IMET route
+   to support BUM traffic.  This IMET route is the equivalent of the
+   MVPN Intra-AS I-PMSI route and is advertised with a PTA as specified
+   in [RFC6514] to advertise the inclusive P-tunnels.  [RFC9252]
+   specifies procedures for IMET routes with IR over SRv6.
+
+   [RFC9572] updates the EVPN BUM procedures to support selective
+   P-tunnels.  It defines new BGP route types that are advertised with a
+   PTA, including the S-PMSI A-D and Leaf A-D routes.  The S-PMSI and
+   Leaf A-D routes of [RFC9572] are analogous to MVPN S-PMSI and Leaf
+   A-D routes [RFC6514].  Note that support of Inter-AS and Inter-Region
+   segmentation procedures in [RFC9572] with SR P2MP P-tunnels are out
+   of scope of this document.
+
+   Inclusive and selective P-tunnels can be instantiated using SR P2MP
+   trees or IR over SR.
+
+4.1.  EVPN with SR P2MP P-Tunnel
+
+   This section specifies modifications to procedures of [RFC7432] and
+   [RFC9572] for SR P2MP P-tunnels.  The IMET, S-PMSI, and Leaf A-D
+   routes have the PTA that specifies the SR P2MP tree P-tunnel.  In
+   this section, the term "SR P2MP" refers to both SR-MPLS and SRv6 data
+   planes.
+
+4.1.1.  PMSI Tunnel Attribute for SR P2MP P-Tunnel
+
+   A PTA for an SR P2MP P-tunnel is constructed as specified in
+   Section 3.2.1, except the MPLS Label and Flags fields are filled as
+   specified in Sections 4.1.1.1 and 4.1.3, respectively.
+
+4.1.1.1.  MPLS Label
+
+4.1.1.1.1.  SR-MPLS
+
+   When an SR P2MP P-tunnel is not shared across MVPNs, i.e., there is
+   one-to-one association between an EVI and an SR P2MP P-tunnel, the
+   MPLS Label field is set to zero as per [RFC6514].  In this case, the
+   SR-MPLS Tree-SID of the PTI of the SR P2MP Policy advertised in the
+   P-tunnel is sufficient to identify the MVPN instance for delivering
+   the payload.
+
+   [RFC7432] and [RFC9572] allow a PE to aggregate two or more EVIs onto
+   one SR P2MP P-tunnel by advertising the same P-tunnel in the PTA of
+   A-D routes of different EVIs.  When an SR P2MP P-tunnel is shared
+   across two or more EVIs in an SR-MPLS domain, the MPLS Label field of
+   a PTA advertised in an EVPN A-D route MUST contain an upstream-
+   assigned MPLS label [RFC5331] [RFC6513] or a label assigned from a
+   global context, such as DCB as specified in [RFC9573], that the
+   advertising PE has bound to the EVI.  The egress PE uses this label
+   as context to identify the specific EVI for delivering the EVPN
+   payload encapsulated in SR-MPLS.  When an ingress PE steers the
+   payload into a shared SR P2MP P-tunnel PTI, this MPLS label MUST be
+   imposed before the MPLS label representing the Tree-SID.
+
+4.1.1.1.2.  SRv6
+
+   For SRv6 P2MP, an EVI is identified by an SRv6 SID encoded in the SRH
+   of an IPv6-encapsulated packet from the ingress PE as described later
+   in this section.  This is required even if the SR P2MP P-tunnel is
+   not shared across EVIs.
+
+   The advertising ingress PE MUST attach a BGP Prefix-SID attribute
+   [RFC8669] to IMET [RFC9252] or S-PMSI [RFC9572] A-D routes with the
+   SRv6 L2 Service TLV [RFC9252].  The SRv6 SID Information Sub-TLV
+   carries the SID in the SRv6 SID Value field.  The SRv6 Endpoint
+   behavior of the SRv6 SID Information Sub-TLV SHOULD be END.DT2M
+   [RFC8986] as per Section 6.3 of [RFC9252].  The SRv6 SID Structure
+   Sub-Sub-TLV encodes the structure of SID.  If the Transposition
+   Scheme is used, the offset and length of the SID is set in the
+   Transposition Length and Transposition Offset fields of this sub-sub-
+   TLV.  Otherwise, the Transposition Length and Offset fields MUST be
+   set to zero.  The LOC of a SID, which is assigned from a global
+   context, such as DCB, is outside the scope of this document.
+
+   The MPLS Label field of a PTA advertised in an A-D route MUST contain
+   an upstream-assigned SRv6 SID that the advertising PE has bound to
+   the EVI or an SRv6 SID assigned from a global context; this follows
+   same concept of the DCB label as specified in [RFC9573].  The high-
+   order 20 bits of the MPLS Label field carry the whole or a portion of
+   the Function part of the SRv6 SID when the Transposition Scheme of
+   encoding as defined in [RFC9252] is used.  When using the
+   Transposition Scheme, the Transposition Length of the SRv6 SID
+   Structure Sub-Sub-TLV of the SRv6 Prefix-SID attribute MUST be less
+   than or equal to 20 and less than or equal to the Function Length.
+   When the Transposition Scheme is not used, the MPLS Label field MUST
+   be set to zero as per [RFC6514], and Transposition Length MUST be
+   zero.
+
+   The advertising ingress PE, which is the Root node of the SR P2MP
+   P-tunnel, MUST encapsulate a payload in an outer IPv6 header with an
+   SRH in which the SRv6 SID (advertised in the BGP Prefix-SID
+   attribute) MUST be the last segment in the segment list (note the
+   SRv6 SID may be the only segment in the SRH).  If the Transposition
+   Scheme is used, the ingress PE MUST merge the Function part of the
+   MPLS Label field of the PTA with the SRv6 SID in the SRv6 SID
+   Information Sub-TLV using the Transposition Offset and Length fields
+   from the SRv6 SID Structure Sub-Sub-TLV to create the SRv6 SID.  When
+   ESI-based split-horizon filtering is used, the Arg.FE2 (see
+   Section 4.1.2.2) SHOULD be merged with the SRv6 SID by doing a
+   bitwise logical OR operation to create the complete SRv6 SID encoded
+   in the SRH on the ingress PE.
+
+   An egress PE of the SR P2MP P-tunnel uses the SRv6 SID in the SRH to
+   determine the EVI in which the customer payload is to be delivered.
+   The egress PE, in role of Leaf or Bud node of the Replication segment
+   associated with the SR P2MP P-tunnel tree, uses "look at next SID in
+   SRH" [RFC9524] behavior to process the SRv6 SID.  An egress PE MUST
+   NOT install the SRv6 SID in its FIB, i.e., it MUST NOT forward
+   packets based on the Locator portion of the SRv6 SID.  The Arg.FE2 of
+   the SID, if present, is used for ESI-based split-horizon filtering as
+   specified in Section 4.1.2.2.
+
+4.1.2.  Split-Horizon Filtering for ES Multihoming
+
+   EVPN requires split-horizon filtering with ES multihoming in order to
+   prevent duplicate BUM traffic as described in Section 8.3 of
+   [RFC7432].  This section describes split-horizon filtering procedures
+   with SR P2MP P-tunnels.
+
+4.1.2.1.  SR-MPLS Filtering
+
+   The split-horizon procedures specified for P2MP MPLS Label Switched
+   Paths (LSPs) in Section 8.3.1.2 of [RFC7432] are sufficient for SR
+   P2MP P-tunnels.  Note for shared SR P2MP P-tunnels, the ESI label is
+   at the bottom of the label stack, followed by an EVI context label
+   and finally the Tree-SID label of the PTI associated with P-tunnel at
+   the top in SR-MPLS encapsulation.
+
+4.1.2.2.  SRv6 Filtering
+
+   For SRv6, the Arg.FE2 argument of End.DT2M SRv6 Endpoint behavior
+   [RFC8986] is used for ESI-based split-horizon filtering.  For an SR
+   P2MP P-tunnel, the Arg.FE2 SID argument is an upstream-assigned value
+   assigned by an ingress PE and identifies an ES of origin.  This SID
+   Argument is analogous to the upstream-assigned ESI MPLS label
+   specified in Section 8.3 of [RFC7432].  The Arg.FE2 is signaled in
+   the ESI Label field of the ESI Label extended community [RFC7432] and
+   a BGP Prefix-SID attribute with an Ethernet A-D per ES route as
+   specified in Section 6.1.1 of [RFC9252] and expanded further in
+   [RFC9819].
+
+   The advertised Arg.FE2 is encoded with the SRv6 SID in the SRH by the
+   ingress PE as described in Section 4.1.1.1.2.  The egress PE uses the
+   Arg.FE2 of the SRv6 SID, if present, to perform ESI-based split-
+   horizon filtering as specified for the End.DT2M forwarding behavior
+   in Section 4.12 of [RFC8986].
+
+4.1.3.  Auto-Discovery Procedures
+
+   EVPN A-D procedures specified in [RFC7432] and [RFC9572] are used to
+   advertise an SR P2MP P-tunnel and discover the Leaf nodes of the SR
+   P2MP Policy associated with the P-tunnel.  This section describes the
+   processing of EVPN A-D routes to create, update, and tear down an SR
+   P2MP Policy of an SR P2MP P-tunnel as described in Section 2.
+
+4.1.3.1.  Creation of CP of SR P2MP Policy
+
+   A PE interacts with an SR P2MP Policy module to create a CP, with
+   optional traffic engineering constraints and an optional optimization
+   objective, of an SR P2MP Policy when it originates an IMET A-D route
+   [RFC7432] or an S-PMSI A-D route [RFC9572], with a PTA that has an SR
+   P2MP P-tunnel type.
+
+   The CP of the SR P2MP Policy associated with an SR P2MP P-tunnel is
+   deleted from the SR P2MP Policy module when a PE withdraws the IMET
+   or S-PMSI A-D route advertising that P-tunnel.
+
+   When a PE originates an S-PMSI A-D route with a PTA that has an SR
+   P2MP P-tunnel type, it MUST set the "Leaf Information Required" flag
+   in the PTA.
+
+4.1.3.2.  Discovery of Leaf Nodes
+
+   An ingress PE that advertises an EVPN A-D route with a PTA that has
+   an SR P2MP P-tunnel type discovers a Leaf node of the SR P2MP Policy
+   associated with the SR P2MP P-tunnel when it imports an IMET A-D
+   route [RFC7432] or Leaf A-D route [RFC9572] from an egress PE.  The
+   ingress PE adds the egress PE as a Leaf node in the SR P2MP Policy
+   module.
+
+   An ingress PE removes an egress PE from the Leaf set of the SR P2MP
+   Policy when the egress PE withdraws the IMET A-D or the Leaf A-D
+   route.
+
+   An egress PE informs the SR P2MP Policy module to join the SR P2MP
+   Policy as a Leaf or Bud node when it imports an IMET A-D route or an
+   S-PMSI A-D route from an ingress PE that has a PTA with an SR P2MP
+   P-tunnel type.  The egress PE MUST originate a Leaf A-D route if the
+   "Leaf Information Required" flag is set in the PTA.
+
+   An egress PE withdraws itself as a Leaf or Bud node of the SR P2MP
+   Policy when the ingress PE withdraws an IMET or an S-PMSI A-D route.
+   The egress PE MUST withdraw the Leaf A-D it had originated earlier in
+   response to the "Leaf Information Required" flag in the PTA.
+
+4.2.  EVPN with Ingress Replication over SR
+
+   A PE can provide EVPN service using IR over SR.  The EVPN payload is
+   encapsulated in SR-MPLS or SRv6 at an ingress PE and replicated with
+   each copy sent to an egress PE via unicast.  IR procedures for MPLS
+   are specified for the IMET A-D route in [RFC7432] and the SMET A-D
+   route in [RFC9251].  Procedures for EVPN IR over SRv6 for the IMET
+   A-D route are specified in [RFC9252].  These procedures provide an
+   EVPN IR service with best-effort unicast connectivity.
+
+   This document adds procedures for providing an EVPN IR service with
+   an SLA from an ingress PE to an egress PE both for SR-MPLS and SRv6.
+   This document extends the BGP Update message of AFI/SAFI 25/70
+   (L2VPN-EVPN) to carry the Color Extended Community as specified in
+   [RFC9012] and the Color-Only Type extension specified in Section 3 of
+   [RFC9830].  An egress PE colors the IMET with a Color Extended
+   Community.  The ingress PE replicates EVPN customer payload to the
+   egress PE by steering it into an SR-TE policy according to Section 8
+   of [RFC9256].  The ingress PE encapsulates the payload packet into a
+   segment list of the matching SR-TE policy to the egress PE along with
+   IR MPLS label or SRv6 End.DT2M SID received from the egress PE.
+
+   Note that the Color Extended Community is not used with an EVPN SR
+   P2MP P-tunnel.  For EVPN with an SR P2MP P-tunnel, the ingress PE
+   dictates the traffic engineering treatment by specifying the
+   constraints and the metric optimization in the CP of the SR P2MP
+   Policy corresponding to the P-tunnel on the ingress PE.  This is
+   necessary because packets are replicated in the PTI; therefore, it is
+   not possible to have differing traffic engineering treatment towards
+   each egress PE (Leaf node) of the PTI.
+
+4.2.1.  SR-MPLS
+
+   EVPN IR procedures for MPLS specified in [RFC7432] and [RFC9251] can
+   be extended for EVPN IR over SR-MPLS.
+
+   EVPN IR service with an SLA over SR-MPLS data plane can be provided
+   by using the Color Extended Community as described above.  Suppose an
+   egress PE, say PE2, sends an IMET A-D route with Extended Color
+   Community C1 with Color-Only Type 0 and EVPN BUM label L10 to ingress
+   PE1.  Assume the segment list of SR-TE policy (C1, PE2) at ingress
+   PE1 is <L1, L2, L3>.  PE1 will encapsulate the MVPN payload into the
+   MPLS label stack <L1, L2, L3, L10> with L10 as the BoS label.  Note
+   that the MPLS label stack may have the ESI label at the bottom of the
+   label stack if ESI-based split-horizon filtering is used.
+
+4.2.2.  SRv6
+
+   EVPN IR procedures for SRv6 are specified in Section 6.3 of [RFC9252]
+   for the IMET A-D route.
+
+   A PE can provide EVPN IR service with SLA over SRv6 using the Color
+   Extended Community as described above.  Suppose an egress PE, say
+   PE2, sends an IMET A-D route with Extended Color community C1 with
+   Color-Only Type 0 and SRv6 End.DT2M SID S10 to ingress PE1.  Assume
+   the segment list of the SR-TE policy (C1, PE2) at ingress PE1 is <S1,
+   S2, S3>.  PE1 will encapsulate a payload into an IPv6 header with SRH
+   (PE1, S1) (S10, S3, S2; SL=3) (payload).  Note that the End.DT2M SID
+   S10 may also have an Arg.FE2 Argument if ESI-based split-horizon
+   filtering is used.
+
+5.  IANA Considerations
+
+   IANA has assigned the following values in the "P-Multicast Service
+   Interface Tunnel (PMSI Tunnel) Tunnel Types" registry [RFC7385]
+   within the "Border Gateway Protocol (BGP) Parameters" registry group
+   <https://www.iana.org/assignments/bgp-parameters>.
+
+                 +=======+===================+===========+
+                 | Value | Meaning           | Reference |
+                 +=======+===================+===========+
+                 | 0x0C  | SR-MPLS P2MP Tree | RFC 10018 |
+                 +-------+-------------------+-----------+
+                 | 0x0D  | SRv6 P2MP Tree    | RFC 10018 |
+                 +-------+-------------------+-----------+
+
+                         Table 1: PMSI Tunnel Types
+
+   IANA has allocated the following code points in the "SRv6 Endpoint
+   Behaviors" registry [RFC8986] within the "Segment Routing" registry
+   group <https://www.iana.org/assignments/segment-routing>.
+
+      +=======+========+===================+===========+============+
+      | Value |  Hex   | Endpoint Behavior | Reference |   Change   |
+      |       |        |                   |           | Controller |
+      +=======+========+===================+===========+============+
+      | 76    | 0x004C |     End.DTMC4     | RFC 10018 |    IETF    |
+      +-------+--------+-------------------+-----------+------------+
+      | 77    | 0x004D |     End.DTMC6     | RFC 10018 |    IETF    |
+      +-------+--------+-------------------+-----------+------------+
+      | 78    | 0x004E |     End.DTMC46    | RFC 10018 |    IETF    |
+      +-------+--------+-------------------+-----------+------------+
+
+                      Table 2: SRv6 Endpoint Behaviors
+
+6.  Security Considerations
+
+   The procedures in this document do not introduce any additional
+   security considerations beyond those mentioned in [RFC6513],
+   [RFC6514], [RFC7432], and [RFC9572].  For general security
+   considerations applicable to SR P2MP Policy and Replication segments,
+   please refer to [RFC9960] and [RFC9524], respectively.
+
+7.  References
+
+7.1.  Normative References
+
+   [RFC2119]  Bradner, S., "Key words for use in RFCs to Indicate
+              Requirement Levels", BCP 14, RFC 2119,
+              DOI 10.17487/RFC2119, March 1997,
+              <https://www.rfc-editor.org/info/rfc2119>.
+
+   [RFC6513]  Rosen, E., Ed. and R. Aggarwal, Ed., "Multicast in MPLS/
+              BGP IP VPNs", RFC 6513, DOI 10.17487/RFC6513, February
+              2012, <https://www.rfc-editor.org/info/rfc6513>.
+
+   [RFC6514]  Aggarwal, R., Rosen, E., Morin, T., and Y. Rekhter, "BGP
+              Encodings and Procedures for Multicast in MPLS/BGP IP
+              VPNs", RFC 6514, DOI 10.17487/RFC6514, February 2012,
+              <https://www.rfc-editor.org/info/rfc6514>.
+
+   [RFC6625]  Rosen, E., Ed., Rekhter, Y., Ed., Hendrickx, W., and R.
+              Qiu, "Wildcards in Multicast VPN Auto-Discovery Routes",
+              RFC 6625, DOI 10.17487/RFC6625, May 2012,
+              <https://www.rfc-editor.org/info/rfc6625>.
+
+   [RFC7385]  Andersson, L. and G. Swallow, "IANA Registry for
+              P-Multicast Service Interface (PMSI) Tunnel Type Code
+              Points", RFC 7385, DOI 10.17487/RFC7385, October 2014,
+              <https://www.rfc-editor.org/info/rfc7385>.
+
+   [RFC7432]  Sajassi, A., Ed., Aggarwal, R., Bitar, N., Isaac, A.,
+              Uttaro, J., Drake, J., and W. Henderickx, "BGP MPLS-Based
+              Ethernet VPN", RFC 7432, DOI 10.17487/RFC7432, February
+              2015, <https://www.rfc-editor.org/info/rfc7432>.
+
+   [RFC7988]  Rosen, E., Ed., Subramanian, K., and Z. Zhang, "Ingress
+              Replication Tunnels in Multicast VPN", RFC 7988,
+              DOI 10.17487/RFC7988, October 2016,
+              <https://www.rfc-editor.org/info/rfc7988>.
+
+   [RFC8174]  Leiba, B., "Ambiguity of Uppercase vs Lowercase in RFC
+              2119 Key Words", BCP 14, RFC 8174, DOI 10.17487/RFC8174,
+              May 2017, <https://www.rfc-editor.org/info/rfc8174>.
+
+   [RFC8402]  Filsfils, C., Ed., Previdi, S., Ed., Ginsberg, L.,
+              Decraene, B., Litkowski, S., and R. Shakir, "Segment
+              Routing Architecture", RFC 8402, DOI 10.17487/RFC8402,
+              July 2018, <https://www.rfc-editor.org/info/rfc8402>.
+
+   [RFC8660]  Bashandy, A., Ed., Filsfils, C., Ed., Previdi, S.,
+              Decraene, B., Litkowski, S., and R. Shakir, "Segment
+              Routing with the MPLS Data Plane", RFC 8660,
+              DOI 10.17487/RFC8660, December 2019,
+              <https://www.rfc-editor.org/info/rfc8660>.
+
+   [RFC8669]  Previdi, S., Filsfils, C., Lindem, A., Ed., Sreekantiah,
+              A., and H. Gredler, "Segment Routing Prefix Segment
+              Identifier Extensions for BGP", RFC 8669,
+              DOI 10.17487/RFC8669, December 2019,
+              <https://www.rfc-editor.org/info/rfc8669>.
+
+   [RFC8754]  Filsfils, C., Ed., Dukes, D., Ed., Previdi, S., Leddy, J.,
+              Matsushima, S., and D. Voyer, "IPv6 Segment Routing Header
+              (SRH)", RFC 8754, DOI 10.17487/RFC8754, March 2020,
+              <https://www.rfc-editor.org/info/rfc8754>.
+
+   [RFC8986]  Filsfils, C., Ed., Camarillo, P., Ed., Leddy, J., Voyer,
+              D., Matsushima, S., and Z. Li, "Segment Routing over IPv6
+              (SRv6) Network Programming", RFC 8986,
+              DOI 10.17487/RFC8986, February 2021,
+              <https://www.rfc-editor.org/info/rfc8986>.
+
+   [RFC9012]  Patel, K., Van de Velde, G., Sangli, S., and J. Scudder,
+              "The BGP Tunnel Encapsulation Attribute", RFC 9012,
+              DOI 10.17487/RFC9012, April 2021,
+              <https://www.rfc-editor.org/info/rfc9012>.
+
+   [RFC9252]  Dawra, G., Ed., Talaulikar, K., Ed., Raszuk, R., Decraene,
+              B., Zhuang, S., and J. Rabadan, "BGP Overlay Services
+              Based on Segment Routing over IPv6 (SRv6)", RFC 9252,
+              DOI 10.17487/RFC9252, July 2022,
+              <https://www.rfc-editor.org/info/rfc9252>.
+
+   [RFC9524]  Voyer, D., Ed., Filsfils, C., Parekh, R., Bidgoli, H., and
+              Z. Zhang, "Segment Routing Replication for Multipoint
+              Service Delivery", RFC 9524, DOI 10.17487/RFC9524,
+              February 2024, <https://www.rfc-editor.org/info/rfc9524>.
+
+   [RFC9572]  Zhang, Z., Lin, W., Rabadan, J., Patel, K., and A.
+              Sajassi, "Updates to EVPN Broadcast, Unknown Unicast, or
+              Multicast (BUM) Procedures", RFC 9572,
+              DOI 10.17487/RFC9572, May 2024,
+              <https://www.rfc-editor.org/info/rfc9572>.
+
+   [RFC9819]  Talaulikar, K., Raza, K., Rabadan, J., and W. Lin,
+              "Argument Signaling for BGP Services in Segment Routing
+              over IPv6 (SRv6)", RFC 9819, DOI 10.17487/RFC9819, July
+              2025, <https://www.rfc-editor.org/info/rfc9819>.
+
+   [RFC9960]  Parekh, R., Ed., Voyer, D., Ed., Filsfils, C., Bidgoli,
+              H., and Z. Zhang, "Segment Routing Point-to-Multipoint
+              Policy", RFC 9960, DOI 10.17487/RFC9960, April 2026,
+              <https://www.rfc-editor.org/info/rfc9960>.
+
+7.2.  Informative References
+
+   [RFC5331]  Aggarwal, R., Rekhter, Y., and E. Rosen, "MPLS Upstream
+              Label Assignment and Context-Specific Label Space",
+              RFC 5331, DOI 10.17487/RFC5331, August 2008,
+              <https://www.rfc-editor.org/info/rfc5331>.
+
+   [RFC9251]  Sajassi, A., Thoria, S., Mishra, M., Patel, K., Drake, J.,
+              and W. Lin, "Internet Group Management Protocol (IGMP) and
+              Multicast Listener Discovery (MLD) Proxies for Ethernet
+              VPN (EVPN)", RFC 9251, DOI 10.17487/RFC9251, June 2022,
+              <https://www.rfc-editor.org/info/rfc9251>.
+
+   [RFC9256]  Filsfils, C., Talaulikar, K., Ed., Voyer, D., Bogdanov,
+              A., and P. Mattes, "Segment Routing Policy Architecture",
+              RFC 9256, DOI 10.17487/RFC9256, July 2022,
+              <https://www.rfc-editor.org/info/rfc9256>.
+
+   [RFC9573]  Zhang, Z., Rosen, E., Lin, W., Li, Z., and IJ. Wijnands,
+              "MVPN/EVPN Tunnel Aggregation with Common Labels",
+              RFC 9573, DOI 10.17487/RFC9573, May 2024,
+              <https://www.rfc-editor.org/info/rfc9573>.
+
+   [RFC9830]  Previdi, S., Filsfils, C., Talaulikar, K., Ed., Mattes,
+              P., and D. Jain, "Advertising Segment Routing Policies in
+              BGP", RFC 9830, DOI 10.17487/RFC9830, September 2025,
+              <https://www.rfc-editor.org/info/rfc9830>.
+
+   [RFC9961]  Bidgoli, H., Ed., Ali, Z., Zhang, Z., Budhiraja, A., and
+              D. Voyer, "MPLS Segment Routing Point-to-Multipoint (P2MP)
+              Policy Ping", RFC 9961, DOI 10.17487/RFC9961, April 2026,
+              <https://www.rfc-editor.org/info/rfc9961>.
+
+   [SR-P2MP-PCEP]
+              Bidgoli, H., Voyer, D., Budhiraja, A., Parekh, R., and S.
+              Sivabalan, "PCEP extensions for SR P2MP Policy", Work in
+              Progress, Internet-Draft, draft-ietf-pce-sr-p2mp-policy-
+              19, 6 July 2026, <https://datatracker.ietf.org/doc/html/
+              draft-ietf-pce-sr-p2mp-policy-19>.
+
+Acknowledgements
+
+   The authors would like to acknowledge Luc André Burdet reviewing the
+   document.
+
+Contributors
+
+   Zafar Ali
+   Cisco Systems, Inc.
+   United States of America
+   Email: zali@cisco.com
+
+
+   Arvind Venkateswaran
+   Cisco Systems, Inc.
+   United States of America
+   Email: arvvenka@cisco.com
+
+
+   Jayant Kotalwar
+   Nokia
+   Mountain View, CA
+   United States of America
+   Email: jayant.kotalwar@nokia.com
+
+
+   Tanmoy Kundu
+   Nokia
+   Mountain View, CA
+   United States of America
+   Email: tanmoy.kundu@nokia.com
+
+
+   Clayton Hassen
+   Bell
+   Vancouver
+   Canada
+   Email: clayton.hassen@bell.ca
+
+
+   Mankamana Mishra
+   Cisco Systems, Inc.
+   United States of America
+   Email: mankamis@cisco.com
+
+
+Authors' Addresses
+
+   Rishabh Parekh (editor)
+   Arrcus
+   United States of America
+   Email: rishabh@arrcus.com
+
+
+   Daniel Voyer (editor)
+   Cisco Systems, Inc.
+   Montreal
+   Canada
+   Email: davoyer@cisco.com
+
+
+   Clarence Filsfils
+   Cisco Systems, Inc.
+   Brussels
+   Belgium
+   Email: cfilsfil@cisco.com
+
+
+   Hooman Bidgoli
+   Nokia
+   Ottawa
+   Canada
+   Email: hooman.bidgoli@nokia.com
+
+
+   Zhaohui Zhang
+   Juniper Networks
+   Email: zzhang@juniper.net

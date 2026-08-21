@@ -1,0 +1,1854 @@
+﻿
+
+
+
+Internet Engineering Task Force (IETF)                    R. Marin-Lopez
+Request for Comments: 9820                          University of Murcia
+Category: Standards Track                             D. Garcia-Carrillo
+ISSN: 2070-1721                                     University of Oviedo
+                                                          September 2025
+
+
+ Authentication Service Based on the Extensible Authentication Protocol
+     (EAP) for Use with the Constrained Application Protocol (CoAP)
+
+Abstract
+
+   This document specifies an authentication service that uses the
+   Constrained Application Protocol (CoAP) as a transport method to
+   carry the Extensible Authentication Protocol (EAP).  As such, it
+   defines an EAP lower layer based on CoAP called "CoAP-EAP".  One of
+   the main goals is to authenticate a CoAP-enabled Internet of Things
+   (IoT) device (EAP peer) that intends to join a security domain
+   managed by a Controller (EAP authenticator).  Secondly, it allows
+   deriving key material to protect CoAP messages exchanged between them
+   based on Object Security for Constrained RESTful Environments
+   (OSCORE), enabling the establishment of a security association
+   between them.
+
+Status of This Memo
+
+   This is an Internet Standards Track document.
+
+   This document is a product of the Internet Engineering Task Force
+   (IETF).  It represents the consensus of the IETF community.  It has
+   received public review and has been approved for publication by the
+   Internet Engineering Steering Group (IESG).  Further information on
+   Internet Standards is available in Section 2 of RFC 7841.
+
+   Information about the current status of this document, any errata,
+   and how to provide feedback on it may be obtained at
+   https://www.rfc-editor.org/info/rfc9820.
+
+Copyright Notice
+
+   Copyright (c) 2025 IETF Trust and the persons identified as the
+   document authors.  All rights reserved.
+
+   This document is subject to BCP 78 and the IETF Trust's Legal
+   Provisions Relating to IETF Documents
+   (https://trustee.ietf.org/license-info) in effect on the date of
+   publication of this document.  Please review these documents
+   carefully, as they describe your rights and restrictions with respect
+   to this document.  Code Components extracted from this document must
+   include Revised BSD License text as described in Section 4.e of the
+   Trust Legal Provisions and are provided without warranty as described
+   in the Revised BSD License.
+
+Table of Contents
+
+   1.  Introduction
+     1.1.  Requirements Language
+   2.  General Architecture
+   3.  CoAP-EAP Operation
+     3.1.  Discovery
+     3.2.  Flow of Operation (OSCORE Establishment)
+     3.3.  Re-Authentication
+     3.4.  Managing the State of the Service
+     3.5.  Error Handling
+       3.5.1.  EAP Authentication Failure
+       3.5.2.  Non-Responsive Endpoint
+       3.5.3.  Duplicated Message with /.well-known/coap-eap
+     3.6.  Proxy Operation in CoAP-EAP
+   4.  CoAP-EAP Media Type Format
+   5.  CBOR Objects in CoAP-EAP
+   6.  Cipher Suite Negotiation and Key Derivation
+     6.1.  Cipher Suite Negotiation
+     6.2.  Deriving the OSCORE Security Context
+   7.  Discussion
+     7.1.  CoAP as the EAP Lower Layer
+     7.2.  Size of the EAP Lower Layer vs. EAP Method Size
+   8.  Security Considerations
+     8.1.  Use of EAP Methods
+     8.2.  Authorization
+     8.3.  Allowing CoAP-EAP Traffic to Perform Authentication
+     8.4.  Freshness of the Key Material
+     8.5.  Channel-Binding Support
+     8.6.  Additional Security Considerations
+   9.  IANA Considerations
+     9.1.  CoAP-EAP Cipher Suites
+     9.2.  CDDL in CoAP-EAP Information Elements
+     9.3.  The Well-Known URIs Registry
+     9.4.  The EAP Lower Layers Registry
+     9.5.  Media Types Registry
+     9.6.  CoAP Content-Formats Registry
+     9.7.  Resource Type (rt=) Link Target Attribute Values Registry
+     9.8.  Expert Review Instructions
+   10. References
+     10.1.  Normative References
+     10.2.  Informative References
+   Appendix A.  Flow of Operation (DTLS Establishment)
+     A.1.  Deriving DTLS_PSK and Identity
+   Appendix B.  Using CoAP-EAP for Distributing Key Material for IoT
+           Networks
+   Appendix C.  Example Use Case Scenarios
+     C.1.  Example 1: CoAP-EAP Using ACE
+     C.2.  Example 2: Multiple Domains with AAA Infrastructures
+     C.3.  Example 3: Single Domain with a AAA Infrastructure
+     C.4.  Example 4: Single Domain Without a AAA Infrastructure
+     C.5.  Other Use Cases
+       C.5.1.  CoAP-EAP for Network Access Authentication
+       C.5.2.  CoAP-EAP for Service Authentication
+   Acknowledgments
+   Authors' Addresses
+
+1.  Introduction
+
+   This document specifies an authentication service (application) that
+   uses the Extensible Authentication Protocol (EAP) [RFC3748] and is
+   built on top of the Constrained Application Protocol (CoAP)
+   [RFC7252]; it is called "CoAP-EAP".  CoAP-EAP is an application that
+   allows authenticating two CoAP endpoints by using EAP and
+   establishing an Object Security for Constrained RESTful Environments
+   (OSCORE) security association between them.  More specifically, this
+   document specifies how CoAP can be used as a constrained, link-layer-
+   independent, reliable EAP lower layer [RFC3748] to transport EAP
+   messages between a CoAP server (acting as an EAP peer) and a CoAP
+   client (acting as an EAP authenticator) using CoAP messages.  The
+   CoAP client has the option of contacting a backend Authentication,
+   Authorization, and Accounting (AAA) infrastructure to complete the
+   EAP negotiation, as described in the EAP specification [RFC3748].
+
+   In the case of this specification, the EAP methods that can be
+   transported with CoAP-EAP MUST export cryptographic material
+   [RFC5247].  Examples of such methods are the EAP Generalized Pre-
+   Shared Key (EAP-GPSK) [RFC5433], the EAP Method for Global System for
+   Mobile Communications (GSM) Subscriber Identity Modules (EAP-SIM)
+   [RFC4186], the EAP Method for 3rd Generation Authentication and Key
+   Agreement (EAP-AKA') [RFC5448], EAP-TLS 1.3 [RFC9190], EAP with
+   Ephemeral Diffie-Hellman over CBOR Object Signing and Encryption
+   (EAP-EDHOC) [EAP-EDHOC], etc.  ("CBOR" stands for "Concise Binary
+   Object Representation".)  In general, any EAP method designed in the
+   EAP Method Update (EMU) Working Group that exports the Master Session
+   Key (MSK) can be used with CoAP-EAP.  The MSK is used as the basis
+   for further cryptographic derivations.  This way, CoAP messages are
+   protected after authentication.  After the CoAP-EAP operation, an
+   OSCORE security association is established between the endpoints of
+   the service.  Using the keying material from the authentication,
+   other security associations could be generated.  Appendix A shows how
+   to establish a (D)TLS security association using the keying material
+   from the EAP authentication.
+
+   One of the main applications of CoAP-EAP involves Internet of Things
+   (IoT) networks, where we can find very constrained links (e.g.,
+   limited bandwidth) and devices with limited capabilities.  In these
+   IoT scenarios, we identify the IoT device as the entity that wants to
+   be authenticated by using EAP to join a domain that is managed by a
+   Controller.  In these cases, the IoT device is the EAP peer and the
+   Controller is the entity steering the authentication (i.e., the EAP
+   authenticator); from now on, the IoT device will be referred to as
+   the EAP peer and the Controller will be referred to as the EAP
+   authenticator.  In these cases, EAP methods with fewer exchanges,
+   shorter messages, and cryptographic algorithms suitable for
+   constrained devices are preferable.  The benefits of the EAP
+   framework in IoT networks are highlighted in [EAP-Framework-IoT].
+
+1.1.  Requirements Language
+
+   The key words "MUST", "MUST NOT", "REQUIRED", "SHALL", "SHALL NOT",
+   "SHOULD", "SHOULD NOT", "RECOMMENDED", "NOT RECOMMENDED", "MAY", and
+   "OPTIONAL" in this document are to be interpreted as described in
+   BCP 14 [RFC2119] [RFC8174] when, and only when, they appear in all
+   capitals, as shown here.
+
+   Readers are expected to be familiar with the terms and concepts
+   described in CoAP [RFC7252], EAP [RFC3748] [RFC5247], and OSCORE
+   [RFC8613].
+
+2.  General Architecture
+
+   Figure 1 illustrates the architecture defined in this document.  In
+   this architecture, the EAP peer will act as a CoAP server for this
+   service and the domain EAP authenticator will act as a CoAP client.
+   The rationale behind this decision is that EAP Requests will always
+   travel from the EAP server to the EAP peer.  Accordingly, EAP
+   Responses will always travel from the EAP peer to the EAP server.
+
+   It is worth noting that the EAP authenticator MAY interact with a
+   backend AAA infrastructure when EAP pass-through mode is used, which
+   will place the EAP server in the AAA server that contains the
+   information required to authenticate the EAP peer.
+
+   The protocol stack is described in Figure 2.  CoAP-EAP is an
+   application built on top of CoAP.  On top of the application, there
+   is an EAP state machine that can run any EAP method.  In the case of
+   this specification, the EAP method MUST support key derivation and
+   export as specified in [RFC5247]: an MSK of at least 64 octets and an
+   Extended Master Session Key (EMSK) of at least 64 octets.  CoAP-EAP
+   also relies on CoAP reliability mechanisms to transport EAP: CoAP
+   over UDP with Confirmable messages [RFC7252] or CoAP over TCP, TLS,
+   or WebSockets [RFC8323].
+
+         +--------+        +--------------+             +----------+
+         |  EAP   |        |   EAP        |             |   AAA/   |
+         |  peer  |<------>| authenticator|<----------->|EAP server|
+         +--------+  CoAP  +--------------+     AAA     +----------+
+                                             (optional)
+         <---- SCOPE OF THIS DOCUMENT ---->
+
+                      Figure 1: CoAP-EAP Architecture
+
+          +-----------------------------------+
+          |         EAP State Machine         |
+          +-----------------------------------+
+          |       Application (CoAP-EAP)      | <-- This Document
+          +-----------------------------------+
+          | Requests / Responses / Signaling  | RFC 7252 / RFC 8323
+          +-----------------------------------+
+          |     Message / Message Framing     | RFC 7252 / RFC 8323
+          +-----------------------------------+
+          |  Unreliable / Reliable Transport  | RFC 7252 / RFC 8323
+          +-----------------------------------+
+
+                          Figure 2: CoAP-EAP Stack
+
+3.  CoAP-EAP Operation
+
+   Because CoAP-EAP uses reliable delivery as defined in CoAP [RFC7252]
+   [RFC8323], EAP retransmission time is set to an infinite value, as
+   mentioned in [RFC3748].  To maintain ordering guarantees, CoAP-EAP
+   uses Hypermedia as the Engine of Application State (HATEOAS).  Each
+   step during the EAP authentication accesses a new resource in the
+   CoAP server (EAP peer).  The previous resource is removed once the
+   new resource is created, indicating the resource that will process
+   the next step of the EAP authentication.
+
+   One of the benefits of using EAP is that we can choose from a large
+   variety of authentication methods.
+
+   In CoAP-EAP, the EAP peer will only have one authentication session
+   with a specific EAP authenticator, and it will not process any other
+   EAP authentication in parallel (with the same EAP authenticator).
+   That is, a single ongoing EAP authentication is permitted for the
+   same EAP peer and the same EAP authenticator.  It may be worth noting
+   that the EAP authenticator may have parallel EAP sessions with
+   multiple EAP peers.
+
+   To access the authentication service, this document defines the well-
+   known URI "coap-eap" (see Section 9.3).  The /.well-known/coap-eap
+   URI is used with "coap", "coap+tcp", or "coap+ws".
+
+3.1.  Discovery
+
+   Before the CoAP-EAP exchange takes place, the EAP peer needs to
+   discover the EAP authenticator or the entity that will enable the
+   CoAP-EAP exchange (i.e., an intermediary).  The discovery process is
+   outside the scope of this document.
+
+   The CoAP-EAP application can be accessed through the URI "coap-eap"
+   for the trigger message (see Section 3.2, Step 0).  The CoAP-EAP
+   service can be discovered by asking directly about the services
+   offered.  This information can also be available in the resource
+   directory [RFC9176].
+
+   Implementation notes: There are different methods for discovering the
+   IPv6 address of the EAP authenticator or intermediary entity.  For
+   example, in a 6LoWPAN network, the Border Router will typically act
+   as the EAP authenticator.  Hence, after receiving the Router
+   Advertisement (RA) messages from the Border Router, the EAP peer may
+   engage in the CoAP-EAP exchange.
+
+3.2.  Flow of Operation (OSCORE Establishment)
+
+   Figure 3 shows the general flow of operation for CoAP-EAP to
+   authenticate using EAP and establish an OSCORE Security Context.  The
+   flow does not show a specific EAP method.  Instead, the chosen EAP
+   method is represented by using a generic name (EAP-X).  The flow
+   assumes that the EAP peer knows the EAP authenticator implements the
+   CoAP-EAP service.  A CoAP-EAP message has the media type
+   "application/coap-eap".  See Section 9.5.
+
+   The steps for this flow of operation are as follows:
+
+   *  Step 0.  The EAP peer MUST start the CoAP-EAP process by sending a
+      "POST /.well-known/coap-eap" request (trigger message).  This
+      message carries the 'No-Response' CoAP option [RFC7967] to avoid
+      waiting for a response that is not needed.  This is the only
+      message where the EAP authenticator acts as a CoAP server and the
+      EAP peer acts as a CoAP client.  The message also includes a URI
+      in the payload of the message to indicate the resource where the
+      EAP authenticator MUST send the next message.  The name of the
+      resource is selected by the CoAP server.
+
+   Implementation notes: When generating the URI for a resource during a
+   step of the authentication, the resource could have the following
+   format as an example "path/eap/counter", where:
+
+   *  "path" is some local path on the device to make the path unique.
+      This could be omitted if desired.
+
+   *  "eap" is the name that indicates that the URI is for the EAP peer.
+      This has no meaning for the protocol but helps with debugging.
+
+   *  "counter" is an incrementing unique number for every new EAP
+      Request.
+
+   So, per Figure 3, the URI for the first resource would be "/a/eap/1".
+
+   *  Step 1.  The EAP authenticator sends a POST message to the
+      resource indicated in Step 0 (e.g., "/a/eap/1").  The payload in
+      this message contains the first EAP message (EAP-Request/Identity,
+      or EAP-Req/Id) and the Recipient ID of the EAP authenticator (RID-
+      C) for OSCORE, and MAY contain a CBOR array with a list of
+      proposed cipher suites (CS-C) for OSCORE.  If the cipher suite
+      list is not included, the default cipher suite for OSCORE is used.
+      The details of the cipher suite negotiation are discussed in
+      Section 6.1.
+
+   *  Step 2.  The EAP peer processes the POST message sending the EAP
+      Request (EAP-Req/Id) to the EAP peer state machine, which returns
+      an EAP Response (EAP-Response/Identity, or EAP-Resp/Id).  Then,
+      the CoAP-EAP application assigns a new resource to the ongoing
+      authentication process (e.g., "/a/eap/2") and deletes the previous
+      one ("/a/eap/1").  Finally, the CoAP-EAP application sends a '2.01
+      Created' response with the new resource identifier in the
+      Location-Path (and/or Location-Query) Options for the next step.
+      The EAP Response, the Recipient ID of the EAP peer (RID-I), and
+      the selected cipher suite for OSCORE (CS-I) are included in the
+      payload.  In this step, the EAP peer may create an OSCORE Security
+      Context (see Section 6.2).  The required MSK will be available
+      once the EAP authentication is successful (Step 7).
+
+   *  Steps 3-6.  From now on, the EAP authenticator and the EAP peer
+      will exchange EAP packets related to the EAP method (EAP-X),
+      transported in the CoAP message payload.  The EAP authenticator
+      will use the POST method to send EAP Requests to the EAP peer.
+      The EAP peer will use a CoAP response to carry the EAP Response in
+      the payload.  EAP Requests and responses are represented in
+      Figure 3 using the nomenclature "EAP-X-Req" and "EAP-X-Resp",
+      respectively.  When a POST message arrives (e.g., "/a/eap/1")
+      carrying an EAP Request message, if processed correctly by the EAP
+      peer state machine, it returns an EAP Response.  Along with each
+      EAP Response, a new resource is created (e.g., "/a/eap/3") for
+      processing the next EAP Request and the ongoing resource (e.g.,
+      "/a/eap/2") is erased.  This way, ordering guarantees are
+      achieved.  Finally, an EAP Response is sent in the payload of a
+      CoAP response that will also indicate the new resource in the
+      Location-Path (and/or Location-Query) Options.  If an error occurs
+      while processing a legitimate message, the server will return a
+      '4.00 Bad Request'.  Error handling is discussed in Section 3.5.
+
+   *  Step 7.  When the EAP authentication ends successfully, the EAP
+      authenticator obtains the MSK exported by the EAP method, an EAP
+      Success message, and some authorization information [RFC5247]
+      (e.g., Session-Lifetime).  The EAP authenticator creates the
+      OSCORE Security Context using the MSK and Recipient ID of both
+      entities exchanged in Steps 1 and 2.  The establishment of the
+      OSCORE Security Context is defined in Section 6.2.  Then, the EAP
+      authenticator sends the POST message protected with OSCORE for key
+      confirmation, including the EAP Success.  The EAP authenticator
+      MAY also send a Session-Lifetime, in seconds, which is represented
+      by an unsigned integer in a CBOR Object (see Section 5).  If this
+      Session-Lifetime is not sent, the EAP peer assumes a default value
+      of 8 hours, as RECOMMENDED in [RFC5247].  The reception of the
+      OSCORE-protected POST message is considered by the EAP peer as an
+      alternate indication of success [RFC3748].  The EAP peer state
+      machine in the EAP peer interprets the alternate indication of
+      success (similarly to the arrival of an EAP Success) and returns
+      the MSK, which is used to create the OSCORE Security Context in
+      the EAP peer to process the protected POST message received from
+      the EAP authenticator.
+
+   *  Step 8.  If the EAP authentication and the verification of the
+      OSCORE-protected POST (Step 7) are successful, then the EAP peer
+      answers with an OSCORE-protected '2.04 Changed'.  From this point
+      on, communication with the last resource (e.g., "/a/eap/(n)") MUST
+      be protected with OSCORE.  If allowed by application policy, the
+      same OSCORE Security Context MAY be used to protect communication
+      to other resources between the same endpoints.
+
+            EAP peer                            EAP authenticator
+          -------------                           ------------
+                |  POST /.well-known/coap-eap             |
+              0)|  No-Response                            |
+                |  Payload("/a/eap/1")                    |
+                |---------------------------------------->|
+                |                           POST /a/eap/1 |
+                |        Payload(EAP-Req/Id||CS-C||RID-C) |
+              1)|<----------------------------------------|
+                | 2.01 Created Location-Path [/a/eap/2]   |
+                | Payload(EAP-Resp/Id||CS-I||RID-I)       |
+              2)|---------------------------------------->|
+                |                           POST /a/eap/2 |
+                |                     Payload(EAP-X-Req)  |
+              3)|<----------------------------------------|
+                | 2.01 Created Location-Path [/a/eap/3]   |
+                | Payload(EAP-X-Resp)                     |
+              4)|---------------------------------------->|
+                                    ....
+                |                     POST /a/eap/(n-1)   |
+                |                     Payload(EAP-X-Req)  |
+              5)|<----------------------------------------|
+                | 2.01 Created Location-Path [/a/eap/(n)] |
+                | Payload(EAP-X-Resp)                     |
+              6)|---------------------------------------->|
+                |                                         |  MSK
+                |                         POST /a/eap/(n) |   |
+                |                                  OSCORE |   v
+                |  Payload(EAP Success||*Session-Lifetime)| OSCORE
+         MSK  7)|<----------------------------------------|  CTX
+          |     |                                         |
+          v     | 2.04 Changed                            |
+        OSCORE  | OSCORE                                  |
+         CTX  8)|---------------------------------------->|
+                    *Session-Lifetime is optional
+
+              Figure 3: CoAP-EAP Flow of Operation with OSCORE
+
+3.3.  Re-Authentication
+
+   When the CoAP-EAP state is close to expiring, the EAP peer may want
+   to start a new authentication process (re-authentication) to renew
+   the state.  The main goal is to obtain new and fresh keying material
+   (MSK/EMSK) that, in turn, allows deriving a new OSCORE Security
+   Context, increasing the protection against key leakage.  The keying
+   material MUST be renewed before the expiration of the Session-
+   Lifetime.  By default, the EAP key management framework [RFC5247]
+   establishes a default value of 8 hours to refresh the keying
+   material.  Certain EAP methods such as Nimble Out-of-Band
+   Authentication for EAP (EAP-NOOB) [RFC9140] or EAP-AKA' [RFC5448]
+   provide fast reconnect for quicker re-authentication.  The EAP Re-
+   authentication Protocol (ERP) [RFC6696] MAY also be used to avoid the
+   repetition of the entire EAP exchange.
+
+   The re-authentication message flow will be the same as that shown in
+   Figure 3.  Nevertheless, two different CoAP-EAP states will be active
+   during the re-authentication: the current CoAP-EAP state and the new
+   CoAP-EAP state, which will be created once the re-authentication has
+   finished successfully.  Once the re-authentication is completed
+   successfully, the current CoAP-EAP state is deleted and replaced by
+   the new CoAP-EAP state.  If for any reason the re-authentication
+   fails, the current CoAP-EAP state will be available until it expires,
+   or it will be renewed during a subsequent re-authentication attempt.
+
+   If the re-authentication fails, it is up to the EAP peer to decide
+   when to start a new re-authentication before the current EAP state
+   expires.
+
+3.4.  Managing the State of the Service
+
+   The EAP peer and the EAP authenticator keep state during the CoAP-EAP
+   negotiation.  The CoAP-EAP state includes several important parts:
+
+   *  A reference to an instance of the EAP (peer or authenticator/
+      server) state machine.
+
+   *  The resource for the next message in the negotiation (e.g., "/a/
+      eap/2").
+
+   *  The MSK, which is exported when the EAP authentication is
+      successful.  CoAP-EAP can access the different variables via the
+      EAP state machine (see [RFC4137]).
+
+   *  A reference to the OSCORE context.
+
+   Once created, the EAP authenticator MAY choose to delete the state as
+   described in Figure 4.  Conversely, the EAP peer may need to renew
+   the CoAP-EAP state because the key material is close to expiring, as
+   mentioned in Section 3.3.
+
+   There are situations where the current CoAP-EAP state might need to
+   be removed.  For instance, due to its expiration or forced removal,
+   the EAP peer has to be expelled from the security domain.  Such an
+   exchange is illustrated in Figure 4.
+
+   If the EAP authenticator deems it necessary to remove the CoAP-EAP
+   state from the EAP peer before it expires, it can send a DELETE
+   command in a request to the EAP peer, referencing the last CoAP-EAP
+   state resource given by the CoAP server, whose identifier will be the
+   last one received (e.g., "/a/eap/(n)" in Figure 3).  This message is
+   protected by the OSCORE security association to prevent forgery.
+   Upon reception of this message, the CoAP server sends a response to
+   the EAP authenticator with the code '2.02 Deleted', which is also
+   protected by the OSCORE security association.  If a response from the
+   EAP peer does not arrive after EXCHANGE_LIFETIME, the EAP
+   authenticator will remove the state.
+
+             EAP peer                          EAP authenticator
+           -------------                         -------------
+                 |                                       |
+                 |                     DELETE /a/eap/(n) |
+                 |                                OSCORE |
+                 |<--------------------------------------|
+                 |                                       |
+                 | 2.02 Deleted                          |
+                 | OSCORE                                |
+                 |-------------------------------------->|
+
+                          Figure 4: Deleting State
+
+3.5.  Error Handling
+
+   This section elaborates on how different errors are handled: EAP
+   authentication failure (Section 3.5.1), a non-responsive endpoint
+   (Section 3.5.2), and duplicated messages (Section 3.5.3).
+
+3.5.1.  EAP Authentication Failure
+
+   The EAP authentication may fail in different situations (e.g., wrong
+   credentials).  The result is that the EAP authenticator will send an
+   EAP Failure message because of a failed EAP authentication (Step 7 in
+   Figure 3).  In this case, the EAP peer MUST send a response '4.01
+   Unauthorized' in Step 8.  Therefore, Steps 7 and 8 are not protected
+   in this case because no MSK is exported and the OSCORE Security
+   Context is not yet generated.
+
+   If the EAP authentication fails during the re-authentication and the
+   EAP authenticator sends an EAP Failure, the current CoAP-EAP state
+   will still be usable until it expires.
+
+3.5.2.  Non-Responsive Endpoint
+
+   If for any reason one of the entities becomes non-responsive, the
+   CoAP-EAP state SHOULD be removed after a stipulated amount of time.
+   The amount of time can be adjusted according to the policies
+   established by the application or use case where CoAP-EAP is used.
+   As a default value, the CoAP EXCHANGE_LIFETIME parameter, as defined
+   in CoAP [RFC7252], will be used.
+
+   The removal of the CoAP-EAP state in the EAP authenticator assumes
+   that the EAP peer will need to authenticate again.
+
+   According to CoAP, EXCHANGE_LIFETIME considers the time it takes
+   until a client stops expecting a response to a request.  A timer is
+   reset every time a message is sent.  By default, CoAP-EAP adopts the
+   value of EXCHANGE_LIFETIME as a timer in the EAP peer and
+   authenticator to remove the CoAP-EAP state if the authentication
+   process has not progressed to completion during that time.
+
+   The EAP peer will remove the CoAP-EAP state if either the
+   EXCHANGE_LIFETIME is triggered or the EAP peer state machine returns
+   an eapFail.
+
+   The EAP authenticator will remove the CoAP-EAP state if either the
+   EXCHANGE_LIFETIME is triggered or, when the EAP authenticator is
+   operating in pass-through mode (i.e., the EAP authentication is
+   performed against a AAA server), the EAP authenticator state machine
+   returns "aaaTimeout" [RFC4137].
+
+3.5.3.  Duplicated Message with /.well-known/coap-eap
+
+   The reception of the trigger message (Step 0 in Figure 3) containing
+   the URI /coap-eap needs some additional considerations, as the
+   resource is always available in the EAP authenticator.
+
+   If a trigger message arrives at the EAP authenticator during an
+   ongoing authentication with the same EAP peer, the EAP authenticator
+   MUST silently discard this trigger message.
+
+   If an old "POST /.well-known/coap-eap" (Step 0 in Figure 5) arrives
+   at the EAP authenticator and there is no authentication ongoing, the
+   EAP authenticator may understand that a new authentication process is
+   requested.  Consequently, the EAP authenticator will start a new EAP
+   authentication.  However, if the EAP peer did not start any
+   authentication, it will send a '4.04 Not Found' in the response
+   (Figure 5).
+
+            EAP peer                            EAP authenticator
+            ----------                              ----------
+              |  *POST /.well-known/coap-eap            |
+            0)|  No-Response                            |
+              |  Payload("/a/eap/1")                    |
+              |               ------------------------->|
+              |                          POST /a/eap/1  |
+              |              Payload(EAP-Req/Id||CS-C)  |
+            1)|<----------------------------------------|
+              |                                         |
+              | 4.04 Not Found                          |
+              |---------------------------------------->|
+                                  *Old
+
+       Figure 5: /.well-known/coap-eap with No Ongoing Authentication
+                         from the EAP Authenticator
+
+3.6.  Proxy Operation in CoAP-EAP
+
+   The CoAP-EAP operation is intended to be compatible with the use of
+   intermediary entities between the EAP peer and the EAP authenticator
+   when direct communication is not possible.  In this context, CoAP
+   proxies can be used as enablers of the CoAP-EAP exchange.
+
+   This specification is limited to using standard CoAP [RFC7252] as
+   well as standardized CoAP options [RFC8613].  It does not specify any
+   addition in the form of CoAP options.  This is expected to ease the
+   integration of CoAP intermediaries in the CoAP-EAP exchange.
+
+   When using proxies in the CoAP-EAP exchange, it should be considered
+   that the exchange contains a role-reversal process at the beginning
+   of the exchange.  In the first message, the EAP peer acts as a CoAP
+   client and the EAP authenticator acts as the CoAP server.  In the
+   remaining exchanges, the roles are reversed (i.e., the EAP peer acts
+   as the CoAP server, and the EAP authenticator acts as the CoAP
+   client).  When using a proxy in the exchange, for message 0 it will
+   act as a forward proxy, and as a reverse proxy for the rest.
+   Additionally, in the first exchange, the EAP peer, as a CoAP client,
+   sends the URI for the next CoAP message in the payload of a request.
+   This is not the typical behavior, as URIs referring to new services/
+   resources appear in Location-Path and/or Location-Query Options in
+   CoAP responses.  Hence, the proxy will have to treat the payload of
+   Message 0 as if it were a Location-Path Option of a CoAP response.
+
+4.  CoAP-EAP Media Type Format
+
+   In the CoAP-EAP exchange, the format specified by the "application/
+   coap-eap" media type will be used.  See Section 9.5.
+
+   In CoAP-EAP, there are two different elements that can be sent over
+   the payload.  The first one is a relative URI.  This payload will be
+   present for the first message (0) in Figure 3.
+
+   In all the other cases, an EAP message will be followed by the CBOR
+   Object specified in Section 5.  A visual example of the second case
+   can be found in Figure 7 (Section 6.1).
+
+5.  CBOR Objects in CoAP-EAP
+
+   In the CoAP-EAP exchange, information needs to be exchanged between
+   the two entities -- for example, the cipher suites that need to be
+   negotiated, or authorization information (Session-Lifetime).  There
+   may also be a need to extend the information that has to be exchanged
+   in the future.  This section specifies the CBOR data structure
+   [RFC8949] to exchange information between the EAP peer and the EAP
+   authenticator in the CoAP payload.
+
+   Figure 6 shows the specification of the CBOR Object to exchange
+   information in CoAP-EAP.
+
+             CoAP-EAP_Info = {
+                ?  1 : [+ int],     ; Cipher Suite (CS-C or CS-I)
+                ?  2 : bstr,        ; RID-C
+                ?  3 : bstr,        ; RID-I
+                ?  4 : uint         ; Session-Lifetime
+            }
+
+                 Figure 6: CBOR Data Structure for CoAP-EAP
+
+   The parameters contain the following information:
+
+   1.  Cipher Suite: An array with the list of proposed, or selected,
+       CBOR Object Signing and Encryption (COSE) algorithms for OSCORE.
+       If the field is carried over a request, a proposed cipher suite
+       is indicated; if it is carried over a response, it corresponds to
+       the agreed-upon cipher suite.
+
+   2.  RID-C: The Recipient ID of the EAP authenticator.  The EAP peer
+       uses this value as the Sender ID for its OSCORE Sender Context.
+       The EAP authenticator uses this value as the Recipient ID for its
+       Recipient Context.
+
+   3.  RID-I: The Recipient ID of the EAP peer.  The EAP authenticator
+       uses this value as the Sender ID for its OSCORE Sender Context.
+       The EAP peer uses this value as the Recipient ID for its
+       Recipient Context.
+
+   4.  Session-Lifetime: The time that the session is valid, in seconds.
+
+   Other indexes can be used to carry additional values as needed, like
+   specific authorization parameters.
+
+   The indexes from 65001 to 65535 are reserved for experimentation.
+
+6.  Cipher Suite Negotiation and Key Derivation
+
+6.1.  Cipher Suite Negotiation
+
+   OSCORE runs after the EAP authentication, using the cipher suite
+   selected in the cipher suite negotiation (Steps 1 and 2 in Figure 3).
+   To negotiate the cipher suite, CoAP-EAP follows a simple approach:
+   The EAP authenticator sends a list, in decreasing order of
+   preference, with the identifiers of the supported cipher suites (Step
+   1 in Figure 8).  In the response to that message (Step 2 in
+   Figure 8), the EAP peer sends its choice.
+
+   This list is included in the payload after the EAP message through a
+   CBOR array.  An example of how the fields are arranged in the CoAP
+   payload can be seen in Figure 7.  An example exchange for the cipher
+   suite negotiation is shown in Figure 8.  The EAP Request (EAP-Req/Id)
+   and EAP Response (EAP-Resp/Id) are sent; both messages include the
+   CBOR Object (Section 5) containing the cipher suite field for the
+   cipher suite negotiation.
+
+          +------+------------+--------+------+-----------------+
+          | Code | Identifier | Length | Data |  cipher  suites |
+          +------+------------+--------+------+-----------------+
+
+          <----------  EAP Packet  ----------> <-- CBOR array -->
+
+                Figure 7: Cipher Suites in the CoAP Payload
+
+            EAP peer                              EAP Auth.
+            (CoAP server)                          (CoAP client)
+            -------------                          -------------
+              |                                         |
+              |               ...                       |
+              |---------------------------------------->|
+              |                          POST /a/eap/1  |
+              |  Payload(EAP-Req/Id, CBORArray[0,1,2])  |
+            1)|<----------------------------------------|
+              | 2.01 Created Location-Path [/a/eap/2]   |
+              | Payload(EAP-Resp/Id, CBORArray[0])      |
+            2)|---------------------------------------->|
+                                  ...
+
+                     Figure 8: Cipher Suite Negotiation
+
+   If there is no CBOR array specifying the cipher suites, the default
+   cipher suites are applied.  If the EAP authenticator sends a
+   restricted list of cipher suites that can be accepted, it MUST
+   include the default value 0, since it is mandatory to implement.  The
+   EAP peer will have at least that option available.
+
+   The cipher suite requirements are inherited from those established by
+   OSCORE [RFC8613], which are COSE algorithms [RFC9053].  By default,
+   the HMAC-based Extract-and-Expand Key Derivation Function (HKDF)
+   algorithm is SHA-256 and the Authenticated Encryption with Associated
+   Data (AEAD) algorithm is AES-CCM-16-64-128 [RFC9053].  ("HMAC" stands
+   for "Hashed Message Authentication Code".)  Both are mandatory to
+   implement.  The other supported and negotiated cipher suites are
+   listed below; these hash algorithms are considered in cases where the
+   specification includes DTLS support in the future (TLS_SHA256,
+   TLS_SHA384, TLS_SHA512; see Appendix A):
+
+   *  0) AES-CCM-16-64-128, SHA-256 (default)
+
+   *  1) A128GCM, SHA-256
+
+   *  2) A256GCM, SHA-384
+
+   *  3) ChaCha20/Poly1305, SHA-256
+
+   *  4) ChaCha20/Poly1305, SHAKE256
+
+   This specification uses the HKDF as defined in [RFC5869] to derive
+   the necessary key material.  Since the key derivation process uses
+   the MSK, which is considered fresh key material, the HKDF-Expand
+   function (shortened here as "KDF") will be used.  See Section 8.1
+   regarding why the use of this function is enough and it is not
+   necessary to use KDF-Extract.
+
+6.2.  Deriving the OSCORE Security Context
+
+   The derivation of the OSCORE Security Context allows securing the
+   communication between the EAP peer and the EAP authenticator once the
+   MSK has been exported, providing confidentiality, integrity, key
+   confirmation (Steps 7 and 8 in Figure 3), and detection of
+   downgrading attacks.
+
+   Once the Master Secret and Master Salt are derived, they can be used
+   to derive the rest of the OSCORE Security Context (see Section 3.2.1
+   of [RFC8613]).  It should be noted that the ID Context is not
+   provided for the OSCORE Security Context derivation.
+
+   The Master Secret can be derived by using the chosen cipher suite and
+   the KDF as follows:
+
+  Master Secret = KDF(MSK, CS | "COAP-EAP OSCORE MASTER SECRET", length)
+
+   where:
+
+   *  The MSK is exported by the EAP method.  The use of the MSK for key
+      derivation is discussed in Section 8.
+
+   *  CS is the concatenation of the content of the cipher suite
+      negotiation -- that is, the concatenation of two CBOR arrays CS-C
+      and CS-I (with CBOR ints as elements), as defined in Section 5.
+      If neither CS-C nor CS-I was sent (i.e., default algorithms are
+      used), the value used to generate CS will be the same as if the
+      default algorithms were explicitly sent in CS-C or CS-I (i.e., a
+      CBOR array with the cipher suite value of 0).
+
+   *  "COAP-EAP OSCORE MASTER SECRET" is the ASCII code representation
+      of the non-NULL-terminated string (excluding the double quotes
+      around it).
+
+   *  CS and "COAP-EAP OSCORE MASTER SECRET" are concatenated.
+
+   *  length is the size of the output key material.
+
+   Similarly to the Master Secret, the Master Salt can be derived as
+   follows:
+
+    Master Salt = KDF(MSK, CS | "COAP-EAP OSCORE MASTER SALT", length)
+
+   where:
+
+   *  The MSK is exported by the EAP method.  The use of the MSK for key
+      derivation is discussed in Section 8.
+
+   *  CS is the concatenation of the content of the cipher suite
+      negotiation -- that is, the concatenation of two CBOR arrays CS-C
+      and CS-I (with CBOR ints as elements), as defined in Section 5.
+      If neither CS-C nor CS-I was sent (i.e., default algorithms are
+      used), the value used to generate CS will be the same as if the
+      default algorithms were explicitly sent in CS-C or CS-I (i.e., a
+      CBOR array with the cipher suite value of 0).
+
+   *  "COAP-EAP OSCORE MASTER SALT" is the ASCII code representation of
+      the non-NULL-terminated string (excluding the double quotes around
+      it).
+
+   *  CS and "COAP-EAP OSCORE MASTER SALT" are concatenated.
+
+   *  length is the size of the output key material.
+
+   Since the MSK is used to derive the Master Key, the correct
+   verification of the OSCORE-protected request (Step 7) and response
+   (Step 8) confirms that the EAP authenticator and the EAP peer have
+   the same Master Secret, achieving key confirmation.
+
+   To prevent a downgrading attack, the content of the cipher suite
+   (referred to here as "CS") negotiation is embedded in the Master
+   Secret derivation.  If an attacker changes the value of the cipher
+   suite negotiation, the result will be different OSCORE Security
+   Contexts, which in turn will result in failure in Steps 7 and 8.
+
+   The EAP authenticator will use the Recipient ID of the EAP peer (RID-
+   I) as the Sender ID for its OSCORE Sender Context.  The EAP peer will
+   use this value as the Recipient ID for its Recipient Context.
+
+   The EAP peer will use the Recipient ID of the EAP authenticator (RID-
+   C) as the Sender ID for its OSCORE Sender Context.  The EAP
+   authenticator will use this value as the Recipient ID for its
+   Recipient Context.
+
+7.  Discussion
+
+7.1.  CoAP as the EAP Lower Layer
+
+   This section discusses the suitability of CoAP as the EAP lower layer
+   and reviews the requisites imposed by EAP on any protocol
+   transporting EAP.  What EAP expects from its lower layers can be
+   found in Section 3.1 of [RFC3748], which is elaborated next:
+
+   Unreliable transport:  EAP does not assume that lower layers are
+      reliable, but it can benefit from a reliable lower layer.  In this
+      sense, CoAP provides a reliability mechanism (e.g., using
+      Confirmable messages).
+
+   Lower-layer error detection:  EAP relies on lower-layer error
+      detection (e.g., CRC, checksum, Message Integrity Check (MIC),
+      etc.).  For simplicity, CoAP-EAP delegates error detection to the
+      lower layers, such as the link layer or transport layer (e.g., UDP
+      over IPv6 or TCP).
+
+   Lower-layer security:  EAP does not require security services from
+      the lower layers.
+
+   Minimum MTU:  Lower layers need to provide an EAP MTU size of 1020
+      octets or greater.  CoAP assumes an upper bound of 1024 octets for
+      its payload, which covers the EAP requirements when only the EAP
+      message is sent in the CoAP payload.  In the case of Messages 1
+      and 2 in Figure 3, those messages have extra information apart
+      from EAP.  Nevertheless, the EAP-Req/Id has a fixed length of 5
+      bytes.  Message 2, with the EAP-Resp/Id, would limit the length of
+      the identity being used to the CoAP payload maximum size (1024) -
+      len( CS-I || RID-I ) - EAP Response header (5 bytes), which leaves
+      enough space for sending even lengthy identities.  Nevertheless,
+      this limitation can be overcome by using CoAP block-wise transfers
+      [RFC7959].  Note: When EAP is proxied over a AAA framework, the
+      Access-Request packets in RADIUS MUST contain a Framed-MTU
+      attribute with a value of 1024 and, in Diameter, the Framed-MTU
+      Attribute-Value Pair (AVP) with a value of 1024.  This information
+      signals the AAA server that it should limit its responses to 1024
+      octets.
+
+   Ordering guarantees:  EAP relies on lower-layer ordering guarantees
+      for correct operation.  Regarding message ordering, every time a
+      new message arrives at the authentication service hosted by the
+      EAP peer, a new resource is created, and this is indicated in a
+      '2.01 Created' response code along with the name of the new
+      resource via Location-Path or Location-Query Options.  This way,
+      the application shows that its state has advanced.
+
+   Although [RFC3748] states that "EAP provides its own support for
+   duplicate elimination and retransmission," EAP is also reliant on
+   lower-layer ordering guarantees.  In this regard, [RFC3748] talks
+   about possible duplication and says, "Where the lower layer is
+   reliable, it will provide the EAP layer with a non-duplicated stream
+   of packets.  However, while it is desirable that lower layers provide
+   for non-duplication, this is not a requirement."  CoAP provides a
+   non-duplicated stream of packets and accomplishes the desirable non-
+   duplication.  In addition, [RFC3748] says that when EAP runs over a
+   reliable lower layer "the authenticator retransmission timer SHOULD
+   be set to an infinite value, so that retransmissions do not occur at
+   the EAP layer."
+
+7.2.  Size of the EAP Lower Layer vs. EAP Method Size
+
+   Regarding the impact that an EAP lower layer will have on the number
+   of bytes of the whole authentication exchange, [CoAP-EAP] provides a
+   comparison with another network-layer-based EAP lower layer, the
+   Protocol for Carrying Authentication for Network Access (PANA) as
+   defined in [RFC5191].
+
+   The EAP method being transported will take most of the exchange.
+   However, the impact of the EAP lower layer cannot be ignored,
+   especially in very constrained communication technologies such as
+   those with limited capabilities (e.g., as can be found in IoT
+   networks).
+
+   Note: To improve efficiency in environments with constrained devices
+   and networks, the latest versions of EAP methods (e.g., EAP-AKA'
+   [RFC5448], EAP-TLS 1.3 [RFC9190]) are recommended over older
+   versions.  EAP methods more adapted for IoT networks (e.g., EAP-NOOB
+   [RFC9140], EAP-EDHOC [EAP-EDHOC], etc.) are also recommended.
+
+8.  Security Considerations
+
+   Security aspects to be considered include how authorization is
+   managed, the use of the MSK as key material, and how trust in the EAP
+   authenticator is established.  Additional considerations such as EAP
+   channel binding as per [RFC6677] are also discussed here.
+
+8.1.  Use of EAP Methods
+
+   This document limits the use of EAP methods to those compliant with
+   [RFC4017], yielding strong and fresh session keys such as the MSK.
+   By this assumption, the HKDF-Expand function is used directly, as
+   clarified in [RFC5869].
+
+8.2.  Authorization
+
+   Authorization is part of bootstrapping.  It serves to establish
+   whether the EAP peer can join and the set of conditions it must
+   adhere to.  The authorization data will be gathered from the
+   organization that is responsible for the EAP peer and sent to the EAP
+   authenticator if a AAA infrastructure is deployed.
+
+   In standalone mode, the authorization information will be in the EAP
+   authenticator.  If pass-through mode is used, authorization data
+   received from the AAA server can be delivered by the AAA protocol
+   (e.g., RADIUS or Diameter).  Providing more fine-grained
+   authorization data can be done by transporting the data using the
+   Security Assertion Markup Language (SAML) in RADIUS [RFC7833].  After
+   bootstrapping, additional authorization information may be needed to
+   operate in the security domain.  This can be taken care of by the
+   solutions proposed in the Authentication and Authorization for
+   Constrained Environments (ACE) WG, such as the use of OAuth
+   [RFC9200], among other solutions, to provide ACE.
+
+8.3.  Allowing CoAP-EAP Traffic to Perform Authentication
+
+   Since CoAP is an application protocol, CoAP-EAP assumes certain IP
+   connectivity in the link between the EAP peer and the EAP
+   authenticator to run.  This link MUST only authorize unprotected IP
+   traffic to be sent between the EAP peer and the EAP authenticator
+   during the authentication with CoAP-EAP.  Once the authentication is
+   successful, the key material generated by the EAP authentication
+   (MSK) and any other traffic can be authorized if it is protected.  It
+   is worth noting that if the EAP authenticator is not in the same link
+   as the EAP peer and an intermediate entity (e.g., a CoAP proxy) helps
+   with this process, this concept also applies to the communication
+   between the EAP peer and the intermediary.
+
+   Alternatively, the link layer MAY provide support to transport CoAP-
+   EAP without an IP address by using link-layer frames (e.g., by
+   defining a new Key Management Protocol ID per IEEE 802.15.9
+   [IEEE802159]).
+
+8.4.  Freshness of the Key Material
+
+   In CoAP-EAP, there is no nonce exchange to provide freshness to the
+   keys derived from the MSK.  The MSKs and EMSKs are fresh key material
+   per [RFC5247].  Since only one authentication is established per EAP
+   authenticator, there is no need to generate additional key material.
+   If a new MSK is required, a re-authentication can be done by running
+   the process again or using a more lightweight EAP method to derive
+   additional key material as elaborated in Section 3.3.
+
+8.5.  Channel-Binding Support
+
+   According to [RFC6677], channel binding, as related to EAP, is sent
+   through the EAP method supporting it.
+
+   To satisfy the requirements of this document, the EAP lower-layer
+   identifier for CoAP-EAP (10, as assigned by IANA; see Section 9.4)
+   needs to be sent, in the EAP Lower-Layer Attribute if RADIUS is used.
+
+8.6.  Additional Security Considerations
+
+   In the authentication process, it is possible for an entity to forge
+   messages to generate denial-of-service (DoS) attacks on any of the
+   entities involved.  For instance, an attacker can forge multiple
+   initial messages to start an authentication (Step 0 in Figure 3) with
+   the EAP authenticator as if they were sent by different EAP peers.
+   Consequently, the EAP authenticator will start an authentication
+   process for each message received in Step 0, sending the EAP-Req/Id
+   (Step 1).
+
+   To minimize the effects of this DoS attack, it is RECOMMENDED that
+   the EAP authenticator limit the rate at which it processes incoming
+   messages in Step 0 to provide robustness against DoS attacks.  The
+   details of rate limiting are outside the scope of this specification.
+   Nevertheless, the rate of these messages is also limited by the
+   bandwidth available between the EAP peer and the EAP authenticator.
+   This bandwidth will be especially limited in constrained links (e.g.,
+   Low-Power WANs (LPWANs)).  Lastly, it is also RECOMMENDED to reduce
+   at a minimum the state in the EAP authenticator at least until the
+   EAP-Resp/Id is received by the EAP authenticator.
+
+   Another security-related concern is how to ensure that the EAP peer
+   joining the security domain can trust the EAP authenticator.  This
+   issue is elaborated in [RFC5247].  In particular, the EAP peer knows
+   it can trust the EAP authenticator because the key that is used to
+   establish the security association is derived from the MSK.  If the
+   EAP authenticator has the MSK, it is because the AAA server of the
+   EAP peer trusted the EAP authenticator.
+
+9.  IANA Considerations
+
+9.1.  CoAP-EAP Cipher Suites
+
+   IANA has created a new registry titled "CoAP-EAP Cipher Suites" under
+   a new registry group named "CoAP-EAP".  The registration procedures
+   are "Specification Required", "Private Use", and "Standards Action
+   with Expert Review" (see [RFC8126]), as shown in Table 1.
+
+          +===============+=====================================+
+          | Range         | Registration Procedures             |
+          +===============+=====================================+
+          | -65536 to -25 | Specification Required              |
+          +---------------+-------------------------------------+
+          | -24 to -21    | Private Use                         |
+          +---------------+-------------------------------------+
+          | -20 to 23     | Standards Action with Expert Review |
+          +---------------+-------------------------------------+
+          | 24 to 65535   | Specification Required              |
+          +---------------+-------------------------------------+
+
+               Table 1: Registration Procedures for CoAP-EAP
+                               Cipher Suites
+
+   The columns of the registry are Value, Algorithms, Description, and
+   Reference, where Value is an integer and the other columns are text
+   strings.  The initial registrations are shown in Table 2.
+
+     +=======+============+=============================+===========+
+     | Value | Algorithms | Description                 | Reference |
+     +=======+============+=============================+===========+
+     | 0     | 10, -16    | AES-CCM-16-64-128, SHA-256  | RFC 9820  |
+     +-------+------------+-----------------------------+-----------+
+     | 1     | 1, -16     | A128GCM, SHA-256            | RFC 9820  |
+     +-------+------------+-----------------------------+-----------+
+     | 2     | 3, -43     | A256GCM, SHA-384            | RFC 9820  |
+     +-------+------------+-----------------------------+-----------+
+     | 3     | 24, -16    | ChaCha20/Poly1305, SHA-256  | RFC 9820  |
+     +-------+------------+-----------------------------+-----------+
+     | 4     | 24, -45    | ChaCha20/Poly1305, SHAKE256 | RFC 9820  |
+     +-------+------------+-----------------------------+-----------+
+
+          Table 2: CoAP-EAP Cipher Suites: Initial Registrations
+
+9.2.  CDDL in CoAP-EAP Information Elements
+
+   IANA has created a new registry titled "CoAP-EAP Information
+   Elements" under a new registry group named "CoAP-EAP".  The
+   registration procedures are "Standards Action with Expert Review",
+   "Private Use", "Specification Required", and "Experimental Use" (see
+   [RFC8126]), as shown in Table 3.
+
+         +================+=====================================+
+         | Range          | Registration Procedures             |
+         +================+=====================================+
+         | 0 to 23        | Standards Action with Expert Review |
+         +----------------+-------------------------------------+
+         | 24 to 49       | Private Use                         |
+         +----------------+-------------------------------------+
+         | 50 to 65000    | Specification Required              |
+         +----------------+-------------------------------------+
+         | 65001 to 65535 | Experimental Use                    |
+         +----------------+-------------------------------------+
+
+              Table 3: Registration Procedures for CoAP-EAP
+                           Information Elements
+
+   The columns of the registry are Name, Label, CBOR Type, Description,
+   and Reference, where Label is an integer and the other columns are
+   text strings.  The initial registrations are shown in Table 4.
+
+     +==================+=======+========+===============+===========+
+     | Name             | Label | CBOR   | Description   | Reference |
+     |                  |       | Type   |               |           |
+     +==================+=======+========+===============+===========+
+     | Cipher Suite     | 1     | CBOR   | List of the   | RFC 9820  |
+     |                  |       | Array  | proposed or   |           |
+     |                  |       |        | selected COSE |           |
+     |                  |       |        | algorithms    |           |
+     |                  |       |        | for OSCORE    |           |
+     +------------------+-------+--------+---------------+-----------+
+     | RID-C            | 2     | Byte   | Contains the  | RFC 9820  |
+     |                  |       | String | Recipient ID  |           |
+     |                  |       |        | of the EAP    |           |
+     |                  |       |        | authenticator |           |
+     +------------------+-------+--------+---------------+-----------+
+     | RID-I            | 3     | Byte   | Contains the  | RFC 9820  |
+     |                  |       | String | Recipient ID  |           |
+     |                  |       |        | of the EAP    |           |
+     |                  |       |        | peer          |           |
+     +------------------+-------+--------+---------------+-----------+
+     | Session-Lifetime | 4     | uint   | Contains the  | RFC 9820  |
+     |                  |       |        | time that the |           |
+     |                  |       |        | session is    |           |
+     |                  |       |        | valid, in     |           |
+     |                  |       |        | seconds       |           |
+     +------------------+-------+--------+---------------+-----------+
+
+       Table 4: CoAP-EAP Information Elements: Initial Registrations
+
+9.3.  The Well-Known URIs Registry
+
+   IANA has added the well-known URI "coap-eap" to the "Well-Known URIs"
+   registry under the "Well-Known URIs" registry group defined by
+   [RFC8615].
+
+   URI Suffix:  coap-eap
+   Reference:  RFC 9820
+   Status:  permanent
+   Change Controller:  IETF
+
+9.4.  The EAP Lower Layers Registry
+
+   IANA has added the identifier "CoAP-EAP" to the "EAP Lower Layers"
+   registry (defined by [RFC6677]) under the "Extensible Authentication
+   Protocol (EAP) Registry".
+
+   Value:  10
+   Lower Layer:  CoAP-EAP
+   Reference:  RFC 9820
+
+9.5.  Media Types Registry
+
+   IANA has added the media type "application/coap-eap" to the "Media
+   Types" registry.  Section 4 defines the format.
+
+   Type name:  application
+
+   Subtype name:  coap-eap
+
+   Required parameters:  N/A
+
+   Optional parameters:  N/A
+
+   Encoding considerations:  binary
+
+   Security considerations:  See Section 8 of RFC 9820.
+
+   Interoperability considerations:  N/A
+
+   Published specification:  RFC 9820
+
+   Applications that use this media type:  To be identified
+
+   Fragment identifier considerations:  N/A
+
+   Additional information:
+
+      Magic number(s):  N/A
+      File extension(s):  N/A
+      Macintosh file type code(s):  N/A
+
+   Person and email address to contact for further information:
+      ace@ietf.org
+
+   Intended usage:  COMMON
+
+   Restrictions on usage:  N/A
+
+   Author:  See the "Authors' Addresses" section of RFC 9820.
+
+   Change Controller:  IETF
+
+9.6.  CoAP Content-Formats Registry
+
+   IANA has added the media type "application/coap-eap" to the "CoAP
+   Content-Formats" registry under the "Constrained RESTful Environments
+   (CoRE) Parameters" registry group, following the specification in
+   Section 12.3 of [RFC7252].
+
+       +======================+==================+=====+===========+
+       | Media Type           | Content Encoding | ID  | Reference |
+       +======================+==================+=====+===========+
+       | application/coap-eap | -                | 269 | RFC 9820  |
+       +----------------------+------------------+-----+-----------+
+
+                   Table 5: CoAP Content-Formats Registry
+
+9.7.  Resource Type (rt=) Link Target Attribute Values Registry
+
+   IANA has added the resource type "core.coap-eap" to the "Resource
+   Type (rt=) Link Target Attribute Values" registry under the
+   "Constrained RESTful Environments (CoRE) Parameters" registry group.
+
+             +===============+===================+===========+
+             | Value         | Description       | Reference |
+             +===============+===================+===========+
+             | core.coap-eap | CoAP-EAP resource | RFC 9820  |
+             +---------------+-------------------+-----------+
+
+                  Table 6: Resource Type (rt=) Link Target
+                         Attribute Values Registry
+
+9.8.  Expert Review Instructions
+
+   The IANA registries established in this document apply the
+   "Specification Required", "Private Use", "Standards Action with
+   Expert Review", and "Experimental Use" policies.  (See also
+   [RFC8126].)  This section provides general guidelines for what
+   experts should focus on, but as they are designated experts for a
+   reason, they should be granted flexibility.
+
+   *  When defining the use of CoAP-EAP Information Elements (IEs),
+      experts are expected to evaluate how the values are defined, their
+      scope, and whether they align with CoAP-EAP's functionality and
+      constraints.  They are expected to assess whether the values are
+      clear, well structured, and follow CoAP and CoAP-EAP conventions,
+      such as concise encoding for constrained environments.  They
+      should ensure that these IEs can seamlessly integrate with
+      existing CoAP implementations and extensions.  Experts are also
+      expected to verify that IE values are protected from unauthorized
+      modification or misuse during transmission.
+
+   *  When adding new cipher suites, experts must ensure that algorithm
+      values are sourced from the appropriate registry when required.
+      They should also consider seeking input from relevant IETF working
+      groups regarding the accuracy of registered parameters.
+
+10.  References
+
+10.1.  Normative References
+
+   [RFC2119]  Bradner, S., "Key words for use in RFCs to Indicate
+              Requirement Levels", BCP 14, RFC 2119,
+              DOI 10.17487/RFC2119, March 1997,
+              <https://www.rfc-editor.org/info/rfc2119>.
+
+   [RFC3748]  Aboba, B., Blunk, L., Vollbrecht, J., Carlson, J., and H.
+              Levkowetz, Ed., "Extensible Authentication Protocol
+              (EAP)", RFC 3748, DOI 10.17487/RFC3748, June 2004,
+              <https://www.rfc-editor.org/info/rfc3748>.
+
+   [RFC5247]  Aboba, B., Simon, D., and P. Eronen, "Extensible
+              Authentication Protocol (EAP) Key Management Framework",
+              RFC 5247, DOI 10.17487/RFC5247, August 2008,
+              <https://www.rfc-editor.org/info/rfc5247>.
+
+   [RFC6677]  Hartman, S., Ed., Clancy, T., and K. Hoeper, "Channel-
+              Binding Support for Extensible Authentication Protocol
+              (EAP) Methods", RFC 6677, DOI 10.17487/RFC6677, July 2012,
+              <https://www.rfc-editor.org/info/rfc6677>.
+
+   [RFC7252]  Shelby, Z., Hartke, K., and C. Bormann, "The Constrained
+              Application Protocol (CoAP)", RFC 7252,
+              DOI 10.17487/RFC7252, June 2014,
+              <https://www.rfc-editor.org/info/rfc7252>.
+
+   [RFC7959]  Bormann, C. and Z. Shelby, Ed., "Block-Wise Transfers in
+              the Constrained Application Protocol (CoAP)", RFC 7959,
+              DOI 10.17487/RFC7959, August 2016,
+              <https://www.rfc-editor.org/info/rfc7959>.
+
+   [RFC8174]  Leiba, B., "Ambiguity of Uppercase vs Lowercase in RFC
+              2119 Key Words", BCP 14, RFC 8174, DOI 10.17487/RFC8174,
+              May 2017, <https://www.rfc-editor.org/info/rfc8174>.
+
+   [RFC8323]  Bormann, C., Lemay, S., Tschofenig, H., Hartke, K.,
+              Silverajan, B., and B. Raymor, Ed., "CoAP (Constrained
+              Application Protocol) over TCP, TLS, and WebSockets",
+              RFC 8323, DOI 10.17487/RFC8323, February 2018,
+              <https://www.rfc-editor.org/info/rfc8323>.
+
+   [RFC8613]  Selander, G., Mattsson, J., Palombini, F., and L. Seitz,
+              "Object Security for Constrained RESTful Environments
+              (OSCORE)", RFC 8613, DOI 10.17487/RFC8613, July 2019,
+              <https://www.rfc-editor.org/info/rfc8613>.
+
+   [RFC8949]  Bormann, C. and P. Hoffman, "Concise Binary Object
+              Representation (CBOR)", STD 94, RFC 8949,
+              DOI 10.17487/RFC8949, December 2020,
+              <https://www.rfc-editor.org/info/rfc8949>.
+
+10.2.  Informative References
+
+   [CoAP-EAP] Garcia-Carrillo, D. and R. Marin-Lopez, "Lightweight CoAP-
+              Based Bootstrapping Service for the Internet of Things",
+              Sensors, vol. 16, no. 3, DOI 10.3390/s16030358, 2016,
+              <https://www.mdpi.com/1424-8220/16/3/358>.
+
+   [EAP-EDHOC]
+              Garcia-Carrillo, D., Marin-Lopez, R., Selander, G., Preuß
+              Mattsson, J., and F. Lopez-Gomez, "Using the Extensible
+              Authentication Protocol (EAP) with Ephemeral Diffie-
+              Hellman over COSE (EDHOC)", Work in Progress, Internet-
+              Draft, draft-ietf-emu-eap-edhoc-05, 30 July 2025,
+              <https://datatracker.ietf.org/doc/html/draft-ietf-emu-eap-
+              edhoc-05>.
+
+   [EAP-Framework-IoT]
+              Sethi, M. and T. Aura, "Secure Network Access
+              Authentication for IoT Devices: EAP Framework vs.
+              Individual Protocols", IEEE Communications Standards
+              Magazine, vol. 5, no. 3, pp. 34-39,
+              DOI 10.1109/MCOMSTD.201.2000088, 2021,
+              <https://ieeexplore.ieee.org/document/9579387>.
+
+   [IEEE802159]
+              IEEE, "IEEE Standard for Transport of Key Management
+              Protocol (KMP) Datagrams", IEEE Std 802.15.9-2021,
+              DOI 10.1109/IEEESTD.2022.9690134, January 2022,
+              <https://doi.org/10.1109/IEEESTD.2022.9690134>.
+
+   [LO-CoAP-EAP]
+              Garcia-Carrillo, D., Marin-Lopez, R., Kandasamy, A., and
+              A. Pelov, "A CoAP-Based Network Access Authentication
+              Service for Low-Power Wide Area Networks: LO-CoAP-EAP",
+              Sensors, vol. 17, no. 11, DOI 10.3390/s17112646, 2017,
+              <https://www.mdpi.com/1424-8220/17/11/2646>.
+
+   [RFC4017]  Stanley, D., Walker, J., and B. Aboba, "Extensible
+              Authentication Protocol (EAP) Method Requirements for
+              Wireless LANs", RFC 4017, DOI 10.17487/RFC4017, March
+              2005, <https://www.rfc-editor.org/info/rfc4017>.
+
+   [RFC4137]  Vollbrecht, J., Eronen, P., Petroni, N., and Y. Ohba,
+              "State Machines for Extensible Authentication Protocol
+              (EAP) Peer and Authenticator", RFC 4137,
+              DOI 10.17487/RFC4137, August 2005,
+              <https://www.rfc-editor.org/info/rfc4137>.
+
+   [RFC4186]  Haverinen, H., Ed. and J. Salowey, Ed., "Extensible
+              Authentication Protocol Method for Global System for
+              Mobile Communications (GSM) Subscriber Identity Modules
+              (EAP-SIM)", RFC 4186, DOI 10.17487/RFC4186, January 2006,
+              <https://www.rfc-editor.org/info/rfc4186>.
+
+   [RFC4764]  Bersani, F. and H. Tschofenig, "The EAP-PSK Protocol: A
+              Pre-Shared Key Extensible Authentication Protocol (EAP)
+              Method", RFC 4764, DOI 10.17487/RFC4764, January 2007,
+              <https://www.rfc-editor.org/info/rfc4764>.
+
+   [RFC5191]  Forsberg, D., Ohba, Y., Ed., Patil, B., Tschofenig, H.,
+              and A. Yegin, "Protocol for Carrying Authentication for
+              Network Access (PANA)", RFC 5191, DOI 10.17487/RFC5191,
+              May 2008, <https://www.rfc-editor.org/info/rfc5191>.
+
+   [RFC5433]  Clancy, T. and H. Tschofenig, "Extensible Authentication
+              Protocol - Generalized Pre-Shared Key (EAP-GPSK) Method",
+              RFC 5433, DOI 10.17487/RFC5433, February 2009,
+              <https://www.rfc-editor.org/info/rfc5433>.
+
+   [RFC5448]  Arkko, J., Lehtovirta, V., and P. Eronen, "Improved
+              Extensible Authentication Protocol Method for 3rd
+              Generation Authentication and Key Agreement (EAP-AKA')",
+              RFC 5448, DOI 10.17487/RFC5448, May 2009,
+              <https://www.rfc-editor.org/info/rfc5448>.
+
+   [RFC5869]  Krawczyk, H. and P. Eronen, "HMAC-based Extract-and-Expand
+              Key Derivation Function (HKDF)", RFC 5869,
+              DOI 10.17487/RFC5869, May 2010,
+              <https://www.rfc-editor.org/info/rfc5869>.
+
+   [RFC6696]  Cao, Z., He, B., Shi, Y., Wu, Q., Ed., and G. Zorn, Ed.,
+              "EAP Extensions for the EAP Re-authentication Protocol
+              (ERP)", RFC 6696, DOI 10.17487/RFC6696, July 2012,
+              <https://www.rfc-editor.org/info/rfc6696>.
+
+   [RFC7833]  Howlett, J., Hartman, S., and A. Perez-Mendez, Ed., "A
+              RADIUS Attribute, Binding, Profiles, Name Identifier
+              Format, and Confirmation Methods for the Security
+              Assertion Markup Language (SAML)", RFC 7833,
+              DOI 10.17487/RFC7833, May 2016,
+              <https://www.rfc-editor.org/info/rfc7833>.
+
+   [RFC7967]  Bhattacharyya, A., Bandyopadhyay, S., Pal, A., and T.
+              Bose, "Constrained Application Protocol (CoAP) Option for
+              No Server Response", RFC 7967, DOI 10.17487/RFC7967,
+              August 2016, <https://www.rfc-editor.org/info/rfc7967>.
+
+   [RFC8126]  Cotton, M., Leiba, B., and T. Narten, "Guidelines for
+              Writing an IANA Considerations Section in RFCs", BCP 26,
+              RFC 8126, DOI 10.17487/RFC8126, June 2017,
+              <https://www.rfc-editor.org/info/rfc8126>.
+
+   [RFC8446]  Rescorla, E., "The Transport Layer Security (TLS) Protocol
+              Version 1.3", RFC 8446, DOI 10.17487/RFC8446, August 2018,
+              <https://www.rfc-editor.org/info/rfc8446>.
+
+   [RFC8615]  Nottingham, M., "Well-Known Uniform Resource Identifiers
+              (URIs)", RFC 8615, DOI 10.17487/RFC8615, May 2019,
+              <https://www.rfc-editor.org/info/rfc8615>.
+
+   [RFC8824]  Minaburo, A., Toutain, L., and R. Andreasen, "Static
+              Context Header Compression (SCHC) for the Constrained
+              Application Protocol (CoAP)", RFC 8824,
+              DOI 10.17487/RFC8824, June 2021,
+              <https://www.rfc-editor.org/info/rfc8824>.
+
+   [RFC9031]  Vučinić, M., Ed., Simon, J., Pister, K., and M.
+              Richardson, "Constrained Join Protocol (CoJP) for 6TiSCH",
+              RFC 9031, DOI 10.17487/RFC9031, May 2021,
+              <https://www.rfc-editor.org/info/rfc9031>.
+
+   [RFC9053]  Schaad, J., "CBOR Object Signing and Encryption (COSE):
+              Initial Algorithms", RFC 9053, DOI 10.17487/RFC9053,
+              August 2022, <https://www.rfc-editor.org/info/rfc9053>.
+
+   [RFC9140]  Aura, T., Sethi, M., and A. Peltonen, "Nimble Out-of-Band
+              Authentication for EAP (EAP-NOOB)", RFC 9140,
+              DOI 10.17487/RFC9140, December 2021,
+              <https://www.rfc-editor.org/info/rfc9140>.
+
+   [RFC9147]  Rescorla, E., Tschofenig, H., and N. Modadugu, "The
+              Datagram Transport Layer Security (DTLS) Protocol Version
+              1.3", RFC 9147, DOI 10.17487/RFC9147, April 2022,
+              <https://www.rfc-editor.org/info/rfc9147>.
+
+   [RFC9176]  Amsüss, C., Ed., Shelby, Z., Koster, M., Bormann, C., and
+              P. van der Stok, "Constrained RESTful Environments (CoRE)
+              Resource Directory", RFC 9176, DOI 10.17487/RFC9176, April
+              2022, <https://www.rfc-editor.org/info/rfc9176>.
+
+   [RFC9190]  Preuß Mattsson, J. and M. Sethi, "EAP-TLS 1.3: Using the
+              Extensible Authentication Protocol with TLS 1.3",
+              RFC 9190, DOI 10.17487/RFC9190, February 2022,
+              <https://www.rfc-editor.org/info/rfc9190>.
+
+   [RFC9200]  Seitz, L., Selander, G., Wahlstroem, E., Erdtman, S., and
+              H. Tschofenig, "Authentication and Authorization for
+              Constrained Environments Using the OAuth 2.0 Framework
+              (ACE-OAuth)", RFC 9200, DOI 10.17487/RFC9200, August 2022,
+              <https://www.rfc-editor.org/info/rfc9200>.
+
+   [THREAD]   Kumar, S. and E. Dijk, "Thread 1.4 Features White Paper",
+              September 2024,
+              <https://www.threadgroup.org/Portals/0/Documents/
+              Thread_1.4_Features_White_Paper_September_2024.pdf>.
+
+   [TS133.501]
+              ETSI, "5G; Security architecture and procedures for 5G
+              System", V18.9.0, ETSI TS 133 501, April 2025,
+              <https://www.etsi.org/deliver/
+              etsi_ts/133500_133599/133501/18.09.00_60/
+              ts_133501v180900p.pdf>.
+
+Appendix A.  Flow of Operation (DTLS Establishment)
+
+   CoAP-EAP makes it possible to derive a Pre-Shared Key (PSK) from the
+   MSK to allow (D)TLS PSK-based authentication between the EAP peer and
+   the EAP authenticator instead of using OSCORE.  In the case of using
+   (D)TLS to establish a security association, there is a limitation on
+   the use of intermediaries between the EAP peer and the EAP
+   authenticator, as (D)TLS breaks the end-to-end communications when
+   using intermediaries such as proxies.
+
+   Figure 9 shows the last steps of the flow of operation for CoAP-EAP
+   when (D)TLS is used to protect the communication between the EAP peer
+   and the EAP authenticator using the keying material exported by the
+   EAP authentication.  The general flow is essentially the same as in
+   the case of OSCORE, except that DTLS negotiation is established in
+   Step 7.  Once DTLS negotiation has finished successfully, the EAP
+   peer is granted access to the domain.  Step 7 MUST be interpreted by
+   the EAP peer as an alternate success indication, which will end up
+   with the MSK and the DTLS_PSK derivation for the (D)TLS
+   authentication based on the PSK.
+
+         EAP peer                              EAP authenticator
+       -------------                           -------------
+                               ...
+                 | 2.01 Created Location-Path [/a/eap/(n)] |
+                 | Payload(EAP-X-Resp)                     |
+               6)|---------------------------------------->|
+                 |                                         | MSK
+                 |       (D)TLS 1.3 Client Hello           |  |
+         MSK   7)|<----------------------------------------|  v
+          |      |                                         | DTLS_PSK
+          v      |============= DTLS handshake ============|
+       DTLS_PSK  |                                         |
+                       <-- Protected with (D)TLS -->
+
+               Figure 9: CoAP-EAP Flow of Operation with DTLS
+
+   According to [RFC8446], the provision of the PSK out of band also
+   requires the provision of the KDF hash algorithm and the PSK
+   identity.  To simplify the design in CoAP-EAP, the KDF hash algorithm
+   can be included in the list of cipher suites exchanged in Steps 1 and
+   2 (Figure 8) if one wants to use DTLS instead of OSCORE.  For the
+   same reason, the PSK identity is derived from RID-C || RID-I as
+   defined in Appendix A.1.
+
+   Analogous to how the cipher suite is negotiated for OSCORE
+   (Section 6.1), the EAP authenticator sends a list, in decreasing
+   order of preference, with the identifiers of the hash algorithms
+   supported (Step 1).  In the response, the EAP peer sends its choice.
+
+   This list is included in the payload after the EAP message with a
+   CBOR array that contains the cipher suites.  This CBOR array is
+   enclosed as one of the elements of the CBOR Object used for
+   transporting information in CoAP-EAP (see Section 5).  An example of
+   how the fields are arranged in the CoAP payload can be seen in
+   Figure 7.
+
+   If there is no CBOR array specifying the cipher suites, the default
+   cipher suites are applied.  If the EAP authenticator sends a
+   restricted list of cipher suites that can be accepted, it MUST
+   include the default value 0, since it is mandatory to implement.  The
+   EAP peer will have at least that option available.
+
+   For DTLS, the negotiated cipher suite is used to determine the hash
+   function to be used to derive the "DTLS_PSK" from the MSK.  The
+   following hash algorithms are considered in cases where the
+   specification includes DTLS support in the future:
+
+   *  5) TLS_SHA256
+
+   *  6) TLS_SHA384
+
+   *  7) TLS_SHA512
+
+   The inclusion of these values, apart from indicating the hash
+   algorithm, indicates that the EAP authenticator intends to establish
+   an OSCORE security association or a DTLS security association after
+   the authentication is completed.  If both options appear in the
+   cipher suite negotiation, the OSCORE security association will be
+   preferred over DTLS.
+
+A.1.  Deriving DTLS_PSK and Identity
+
+   To enable DTLS after an EAP authentication, Identity and the PSK for
+   DTLS are defined.  Identity in this case is generated by
+   concatenating the exchanged Sender ID and the Recipient ID.
+
+                   CoAP-EAP PSK Identity = RID-C || RID-I
+
+   It is also possible to derive a PSK for DTLS [RFC9147], referred to
+   here as "DTLS_PSK", from the MSK between both the EAP peer and EAP
+   authenticator if required.  The length of the DTLS_PSK will depend on
+   the cipher suite.  To have keying material with sufficient length, a
+   key of 32 bytes is derived that can be truncated later if needed:
+
+                   DTLS_PSK = KDF(MSK, "CoAP-EAP DTLS_PSK", length)
+
+   where:
+
+   *  The MSK is exported by the EAP method.
+
+   *  "CoAP-EAP DTLS_PSK" is the ASCII code representation of the non-
+      NULL-terminated string (excluding the double quotes around it).
+
+   *  length is the size of the output key material.
+
+Appendix B.  Using CoAP-EAP for Distributing Key Material for IoT
+             Networks
+
+   Similarly to the example in Appendix A.1, where a PSK for DTLS is
+   derived, it is possible to provide key material to different link
+   layers after the CoAP-EAP authentication is complete.
+
+   For example, CoAP-EAP could be used to derive the PSK required to run
+   the Constrained Join Protocol (CoJP) for IPv6 over the TSCH mode of
+   IEEE 802.15.4e (6TiSCH) [RFC9031].  ("TSCH" stands for "Time-Slotted
+   Channel Hopping".)
+
+   Another example would be when a shared Network Key is required by the
+   devices that join a network.  An example of this Network Key can be
+   found in the THREAD protocol [THREAD].  After CoAP-EAP execution, a
+   security association based on OSCORE protects any exchange between
+   the EAP peer and the EAP authenticator.  This security association
+   can be used for distributing the Network Key securely and other
+   required parameters.  How the Network Key is distributed after a
+   successful CoAP-EAP authentication is outside the scope of this
+   document.
+
+   How a particular link-layer technology uses the MSK to derive further
+   key material for protecting the link layer or uses OSCORE protection
+   to distribute key material is outside the scope of this document.
+
+Appendix C.  Example Use Case Scenarios
+
+   In IoT networks, for an EAP peer to act as a trustworthy entity
+   within a security domain, certain key material needs to be shared
+   between the EAP peer and the EAP authenticator.
+
+   Next, examples of different use case scenarios will be elaborated on
+   as related to the usage of CoAP-EAP.
+
+   Generally, four entities are involved:
+
+   *  Two EAP peers (A and B).
+
+   *  One EAP authenticator (C).  The EAP authenticator manages a domain
+      where EAP peers can be deployed.  In IoT networks, it can be
+      considered a more powerful machine than the EAP peers.
+
+   *  One AAA server.  Optional.  The AAA server is not constrained.
+      Here, the EAP authenticator is operating in pass-through mode.
+
+   Generally, any EAP peer wanting to join the domain managed by the EAP
+   authenticator MUST perform a CoAP-EAP authentication with the EAP
+   authenticator (C).  This authentication MAY involve an external AAA
+   server.  This means that the EAP peers (A and B), once deployed, will
+   run CoAP-EAP once, as a bootstrapping phase, to establish a security
+   association with C.  Moreover, any other entity that wants to join
+   and establish communications with EAP peers under C's domain must
+   also do the same.
+
+   By using EAP, the flexibility of having different types of
+   credentials can be achieved.  For instance, if a device that is not
+   battery dependent and not very constrained is available, a heavier
+   authentication method could be used.  With varied EAP peers and
+   networks, authentication methods that are more lightweight (e.g.,
+   EAP-NOOB [RFC9140], EAP-AKA' [RFC5448], EAP-PSK [RFC4764], EAP-EDHOC
+   [EAP-EDHOC], etc.) and are able to adapt to different types of
+   devices according to organization policies or device capabilities
+   might need to be used.
+
+C.1.  Example 1: CoAP-EAP Using ACE
+
+   When using ACE, the process of client registration and provisioning
+   of credentials to the client is not specified.  The process of client
+   registration and provisioning can be achieved using CoAP-EAP.  Once
+   the process of authentication with EAP is completed, the fresh key
+   material is shared between the EAP peer and the EAP authenticator.
+   With ACE, the EAP authenticator and the Authorization Server (AS) can
+   be co-located.
+
+   Next, a general way to exemplify how client registration can be
+   performed using CoAP-EAP is presented, to allow two EAP peers (A and
+   B) to communicate and interact after a successful client
+   registration.
+
+   EAP peer A wants to communicate with EAP peer B (e.g., to activate a
+   light switch).  The overall process is divided into three phases.
+
+   *  In the first phase, EAP peer A does not yet belong to EAP
+      authenticator C's domain.  Then, it communicates with C and
+      authenticates with CoAP-EAP, which, optionally, communicates with
+      the AAA server to complete the authentication process.  If the
+      authentication is successful, a fresh MSK is shared between C and
+      EAP peer A.  This key material allows EAP peer A to establish a
+      security association with C.  Some authorization information may
+      also be provided in this step.  If EAP is used in standalone mode,
+      the AS itself, having information about the devices, can be the
+      entity providing said authorization information.
+
+      If authentication and authorization are correct, EAP peer A is
+      enrolled in EAP authenticator C's domain for some period of time.
+      In particular, [RFC5247] recommends 8 hours, though the entity
+      providing the authorization information can establish this
+      lifetime.  In the same manner, B needs to perform the same process
+      with CoAP-EAP to be part of EAP authenticator C's domain.
+
+   *  In the second phase, when EAP peer A wants to talk to EAP peer B,
+      it contacts EAP authenticator C for authorization to access EAP
+      peer B and obtain all the required information to do that securely
+      (e.g., keys, tokens, authorization information, etc.).  This phase
+      does NOT require the usage of CoAP-EAP.  The details of this phase
+      are outside the scope of this document; the ACE framework is used
+      for this purpose.  See [RFC9200].
+
+   *  In the third phase, EAP peer A can access EAP peer B with the
+      credentials and information obtained from EAP authenticator C
+      during the second phase.  This access can be repeated without
+      contacting the EAP authenticator, as long as the credentials given
+      to A are still valid.  The details of this phase are outside the
+      scope of this document.
+
+   It is worth noting that to join EAP authenticator C's domain, the
+   first phase (authentication via CoAP-EAP) is required.  Once it is
+   performed successfully, the communications are local to EAP
+   authenticator C's domain and there is no need to perform a new EAP
+   authentication as long as the key material is still valid.  When the
+   keys are about to expire, the EAP peer can engage in a re-
+   authentication to renew the key material, as explained in
+   Section 3.3.
+
+C.2.  Example 2: Multiple Domains with AAA Infrastructures
+
+   A device (A) of the domain acme.org uses a specific kind of
+   credential and intends to join the um.es domain.  This user does not
+   belong to this domain, for which it first performs a client
+   registration using CoAP-EAP.  To do this, it interacts with the EAP
+   authenticator's domain, which in turn communicates with a AAA
+   infrastructure (acting as a AAA client).  Then, the local AAA server
+   communicates with the home AAA server to complete the authentication.
+   This way, the device can be considered as a trustworthy entity within
+   EAP authenticator C's domain.  In this scenario, the AS, in the role
+   of the EAP authenticator, receives the key material from the AAA
+   infrastructure.
+
+C.3.  Example 3: Single Domain with a AAA Infrastructure
+
+   In this scenario, a university campus has several faculty buildings,
+   where each building has its criteria or policies in place to manage
+   EAP peers under an AS.  All buildings belong to the same domain
+   (e.g., um.es).  All these buildings are managed with a AAA
+   infrastructure.  A new device (A) with credentials from the domain
+   (e.g., um.es) will be able to perform the device registration with an
+   EAP authenticator (C) of any building if they are managed by the same
+   general domain.
+
+C.4.  Example 4: Single Domain Without a AAA Infrastructure
+
+   In another case, without a AAA infrastructure, with an EAP
+   authenticator that has co-located the EAP server, and using EAP
+   standalone mode, all the devices can be managed within the same
+   domain locally.  Client registration of an EAP peer (A) with a
+   Controller (C) can also be performed in the same manner.
+
+C.5.  Other Use Cases
+
+C.5.1.  CoAP-EAP for Network Access Authentication
+
+   One of the first steps for an EAP peer is to perform the
+   authentication to gain access to the network.  To do so, the device
+   must first be authenticated and granted authorization to gain access
+   to the network.  Additionally, security parameters such as
+   credentials can be derived from the authentication process, allowing
+   the trustworthy operation of the EAP peer in a particular network by
+   joining the security domain.  By using EAP, this can be achieved with
+   flexibility and scalability, because of the different EAP methods
+   available and the ability to rely on AAA infrastructures if needed to
+   support multi-domain scenarios, which is a key feature when the EAP
+   peers deployed under the same security domain belong, for example, to
+   different organizations.
+
+   The following two cases apply to the process of joining a network:
+   1) the node has an IPv6 address (e.g., link-local IPv6 or IPv6 global
+   address) and 2) the node does not have an IPv6 address.
+
+   In networks where the device is in place but no IP support is
+   available until the EAP peer is authenticated, specific support for
+   this EAP lower layer has to be defined to allow CoAP-EAP messages to
+   be exchanged between the EAP peer and the EAP authenticator.  For
+   example, in IEEE 802.15.4 networks, a new Key Management Protocol
+   (KMP) ID can be defined to add such support in the case of IEEE
+   802.15.9 [IEEE802159], where it can be assumed that the device has at
+   least a link-layer IPv6 address.
+
+   When the EAP peer intends to be admitted into the network, it would
+   search for an entity that offers the CoAP-EAP service, be it directly
+   via the EAP authenticator or through an intermediary (e.g., proxy).
+   See Section 3.1.
+
+   CoAP-EAP will run between the EAP peer and the EAP authenticator or
+   through an intermediary entity such as a proxy, as happens in a mesh
+   network, where the EAP authenticator could be placed one or more hops
+   away from the EAP peer.  In the case that a proxy participates in
+   CoAP-EAP, it will be because it is already a trustworthy entity
+   within the domain and communicates through a secure channel with the
+   EAP authenticator, as illustrated by Figure 10.
+
+   If the EAP peer cannot connect to the EAP authenticator directly, the
+   EAP peer can follow the same process as that described in Section 3.6
+   to perform the authentication (i.e., can connect via an intermediary
+   entity (e.g., proxy) that is already part of the network (already
+   shares key material and communicates through a secure channel with
+   the authenticator) and can aid in running CoAP-EAP).
+
+   When CoAP-EAP is completed and the OSCORE security association is
+   established with the EAP authenticator, the EAP peer receives the
+   local configuration parameters for the network (e.g., a Network Key)
+   and can configure a global IPv6 address.  Moreover, there is no need
+   for an intermediary entity after a successful authentication.
+
+   For removal, if the EAP authenticator decides to remove a particular
+   EAP peer from the network or the peer itself intends to leave, either
+   the EAP peer or the EAP authenticator can directly send a DELETE
+   command to explicitly express that the network access state is
+   removed, and the device will no longer belong to the network.  Thus,
+   any state related to the EAP peer is removed in the EAP
+   authenticator.  Forced removal can be done by sending new specific
+   key material to the devices that still belong to the network,
+   excluding the removed device, following a model similar to CoJP for
+   6TiSCH [RFC9031].  The specifics on how this process is to be done
+   are outside the scope of this document.
+
+  +-------+        +--------+                           +--------------+
+  | EAP   |        |  CoAP  |                           |   EAP        |
+  | peer  |<------>|  proxy |<------------------------->| authenticator|
+  +-------+  CoAP  +--------+           CoAP            +--------------+
+                                      OSCORE/DTLS
+                              <-- security association -->
+
+                Figure 10: CoAP-EAP Through CoAP Proxy
+
+   Given that EAP is also used for network access authentication, this
+   service can be adapted to other technologies -- for instance, to
+   provide network access control to very constrained technologies
+   (e.g., Long Range (LoRa) networks).  The authors of [LO-CoAP-EAP]
+   provide a study of a minimal version of CoAP-EAP for LPWANs, with
+   interesting results.  In this specific case, compression as provided
+   by Static Context Header Compression (SCHC) for CoAP [RFC8824] can be
+   leveraged.
+
+C.5.2.  CoAP-EAP for Service Authentication
+
+   It is not uncommon that the infrastructure where the device is
+   deployed and the services of the EAP peer are managed by different
+   organizations.  Therefore, in addition to the authentication for
+   network access control, the possibility of a secondary authentication
+   to access different services has to be considered.  This process of
+   authentication, for example, will provide the necessary key material
+   to establish a secure channel and interact with the entity in charge
+   of granting access to different services.
+
+   In 5G, for example, consider primary and secondary authentication
+   using EAP [TS133.501].
+
+Acknowledgments
+
+   We would like to thank the reviewers of this work: Paul Wouters,
+   Heikki Vatiainen, Josh Howlett, Deb Cooley, Eliot Lear, Alan DeKok,
+   Carsten Bormann, Mohit Sethi, Benjamin Kaduk, Christian Amsüss, John
+   Preuß Mattsson, Göran Selander, Alexandre Petrescu, Pedro Moreno-
+   Sanchez, and Eduardo Ingles-Sanchez.
+
+   We would also like to thank Gabriel Lopez-Millan for the first review
+   of this document, Ivan Jimenez-Sanchez for the first proof-of-concept
+   implementation of this idea, Julian Niklas Schimmelpfennig for the
+   implementation of the Erbium-based IoT device implementation, and
+   Daniel Menendez Gonzalez for the Python implementation.
+
+   Thanks also to Alexander Pelov and Laurent Toutain for their valuable
+   comments, especially regarding the potential optimizations of CoAP-
+   EAP.
+
+   This work was supported in part by Grant PID2020-112675RB-C44 funded
+   by MCIN/AEI/10.13039/5011000011033 (ONOFRE-3-UMU) and in part by the
+   H2020 EU project IoTCrawler under contract 779852.
+
+Authors' Addresses
+
+   Rafa Marin-Lopez
+   University of Murcia
+   Campus de Espinardo S/N, Faculty of Computer Science
+   30100 Murcia
+   Spain
+   Email: rafa@um.es
+
+
+   Dan Garcia-Carrillo
+   University of Oviedo
+   Calle Luis Ortiz Berrocal S/N, Edificio Polivalente
+   33203 Gijon Asturias
+   Spain
+   Email: garciadan@uniovi.es

@@ -1,0 +1,1372 @@
+﻿
+
+
+
+Internet Engineering Task Force (IETF)                       P. Kaneriya
+Request for Comments: 9885                                         T. Li
+Category: Standards Track                                  A. Przygienda
+ISSN: 2070-1721                                                 S. Hegde
+                                                        Juniper Networks
+                                                             L. Ginsberg
+                                                           Cisco Systems
+                                                            October 2025
+
+
+                        Multi-Part TLVs in IS-IS
+
+Abstract
+
+   New technologies are adding new information into IS-IS while
+   deployment scales are simultaneously increasing.  This causes the
+   contents of many critical TLVs to exceed the currently supported
+   limit of 255 octets.  This document codifies the common mechanism of
+   extending the TLV content space through multiple TLVs.
+
+Status of This Memo
+
+   This is an Internet Standards Track document.
+
+   This document is a product of the Internet Engineering Task Force
+   (IETF).  It represents the consensus of the IETF community.  It has
+   received public review and has been approved for publication by the
+   Internet Engineering Steering Group (IESG).  Further information on
+   Internet Standards is available in Section 2 of RFC 7841.
+
+   Information about the current status of this document, any errata,
+   and how to provide feedback on it may be obtained at
+   https://www.rfc-editor.org/info/rfc9885.
+
+Copyright Notice
+
+   Copyright (c) 2025 IETF Trust and the persons identified as the
+   document authors.  All rights reserved.
+
+   This document is subject to BCP 78 and the IETF Trust's Legal
+   Provisions Relating to IETF Documents
+   (https://trustee.ietf.org/license-info) in effect on the date of
+   publication of this document.  Please review these documents
+   carefully, as they describe your rights and restrictions with respect
+   to this document.  Code Components extracted from this document must
+   include Revised BSD License text as described in Section 4.e of the
+   Trust Legal Provisions and are provided without warranty as described
+   in the Revised BSD License.
+
+Table of Contents
+
+   1.  Introduction
+   2.  Requirements Language
+   3.  Overview of MP-TLV Applicability to TLVs
+     3.1.  TLVs that Advertise a List of Objects
+     3.2.  TLVs that Advertise Objects with Identifier(s)
+       3.2.1.  Example: Extended IS Reachability
+       3.2.2.  Example: Extended IP Reachability
+   4.  Multi-Part TLVs
+   5.  Procedure for Receiving Multi-Part TLVs
+   6.  Specification of Applicability of Multi-Part TLVs
+   7.  MP-TLV Capability Advertisement
+   8.  Deployment Considerations
+     8.1.  Controls and Alarms
+     8.2.  Restrictions on Generation of MP-TLVs
+   9.  IANA Considerations
+     9.1.  MP-TLV Support Sub-TLV
+     9.2.  Extension to IS-IS Top-Level TLV Registries
+       9.2.1.  MP-TLV for IS-IS Top-Level TLV Codepoints
+       9.2.2.  MP-TLV for IS-IS Sub-TLVs for Reverse Metric TLV
+       9.2.3.  MP-TLV for IS-IS Sub-TLVs for TLVs Advertising Neighbor
+               Information
+       9.2.4.  MP-TLV for IS-IS Sub-TLVs for TLVs Advertising Prefix
+               Reachability
+       9.2.5.  MP-TLV for IS-IS Sub-TLVs for MT-Capability TLV
+       9.2.6.  MP-TLV for IS-IS Sub-TLVs for IS-IS Router CAPABILITY
+               TLV
+       9.2.7.  IS-IS Sub-Sub-TLVs for SRv6 Capabilities Sub-TLV
+       9.2.8.  MP-TLV IS-IS Sub-Sub-TLVs for BIER Info Sub-TLV
+       9.2.9.  MP-TLV for IS-IS Sub-TLVs for Segment Identifier/Label
+               Binding TLVs
+       9.2.10. MP-TLV for IS-IS Sub-Sub-TLV Codepoints for
+               Application-Specific Link Attributes
+       9.2.11. MP-TLV for IS-IS Sub-TLVs for Application-Specific SRLG
+               TLV
+       9.2.12. MP-TLV for IS-IS Sub-Sub-TLVs for SRv6 SID Sub-TLVs
+       9.2.13. MP-TLV for IS-IS Sub-Sub-TLVs for Flexible Algorithm
+               Definition Sub-TLV
+       9.2.14. MP-TLV for IS-IS Sub-Sub-TLVs for Flood Reflection
+               Discovery Sub-TLV
+   10. Security Considerations
+   11. References
+     11.1.  Normative References
+     11.2.  Informative References
+   Contributors
+   Authors' Addresses
+
+1.  Introduction
+
+   The continued growth of the Internet has resulted in a commensurate
+   growth in the scale of service provider networks and the amount of
+   information carried in IS-IS [ISO10589] Type-Length-Value (TLV)
+   tuples.  Simultaneously, new traffic engineering technologies are
+   defining new attributes, further adding to the scaling pressures.
+   The original TLV definition limits each TLV to a maximum of 255
+   octets of payload, which is becoming increasingly problematic.
+
+   Some TLV definitions have addressed this by explicitly stating that a
+   TLV may appear multiple times inside of a Link State PDU (LSP).
+   However, this has not been done for many currently defined TLVs,
+   leaving the situation somewhat ambiguous.
+
+   For example, [RFC5305] defines the Extended IS reachability TLV (22)
+   and [RFC5120] defines the MT-ISN TLV (222).  These documents do not
+   specify sending multiple TLVs for the same object and no other
+   mechanism for expanding the information carrying capacity of the TLV
+   has been specified.
+
+   The intent of this document is to clarify and codify the situation by
+   explicitly making multiple occurrences of a TLV the standard
+   mechanism for scaling TLV contents.  Any future document that
+   proposes a different mechanism for scaling TLV contents for a given
+   codepoint must explain why multiple occurrences of a TLV is not
+   appropriate.
+
+   This document does not alter the encoding of any TLV where multiple
+   occurrences of a TLV are already defined.  Some examples of this are:
+
+   *  Router CAPABILITY TLV (Type 242) [RFC7981]
+
+   *  Application-Specific SRLG (Type 238) [RFC9479]
+
+   *  Instance Identifier (Type 7) [RFC8202]
+
+   *  Application-Specific Link Attributes (sub-TLV Type 16) [RFC9479]
+
+   [RFC7356] has defined a 16-bit Length field for TLVs in flooding
+   scoped Protocol Data Units (PDUs).  The problem addressed by this
+   document would likely not be encountered when 16-bit Length TLVs are
+   in use.  However, introduction of these new PDU types is not
+   backwards compatible.  Therefore, there is a need to address how to
+   expand the information advertised in existing PDUs that use TLVs with
+   8-bit length fields.
+
+   The mechanism described in this document has not been documented for
+   all TLVs previously.  This document provides the necessary protocol
+   definition and discusses potential interoperability issues and
+   deployment challenges.
+
+   This document specifies a means for extending TLVs where no extension
+   mechanism has been previously explicitly specified.  It also
+   specifies this mechanism as the default extension mechanism for
+   future TLVs.  The mechanism described in this document is applicable
+   to top level TLVs as well as any level of sub-TLVs that may appear
+   within a top level TLV.
+
+2.  Requirements Language
+
+   The key words "MUST", "MUST NOT", "REQUIRED", "SHALL", "SHALL NOT",
+   "SHOULD", "SHOULD NOT", "RECOMMENDED", "NOT RECOMMENDED", "MAY", and
+   "OPTIONAL" in this document are to be interpreted as described in
+   BCP 14 [RFC2119] [RFC8174] when, and only when, they appear in all
+   capitals, as shown here.
+
+3.  Overview of MP-TLV Applicability to TLVs
+
+   A TLV is a tuple of (Type, Length, Value) and can be advertised in
+   IS-IS packets.  Both Type and Length fields are one octet in size,
+   which leads to the limitation that a maximum of 255 octets can be
+   sent in a single TLV.  TLVs that have certain general characteristics
+   have the potential to require advertisement of more than 255 octets.
+   These generic types are described in more detail in the following
+   subsections.
+
+3.1.  TLVs that Advertise a List of Objects
+
+   Some TLVs are simply a list of objects of a given type.  For example,
+   the BFD-Enabled TLV (Type 148) [RFC6213] contains a list of Multi-
+   Topology Identifier (MTID)/ Network Layer Protocol Identifier (NLPID)
+   pairs.  If more than 255 octets are required to advertise all of the
+   MTID/NLPID pairs, multiple BFD-Enabled TLVs would be required.  The
+   relationship between multiple BFD-Enabled TLVs is established using
+   the TLV type.
+
+3.2.  TLVs that Advertise Objects with Identifier(s)
+
+   Some TLVs support advertisement of objects of a given type, where
+   each object is identified by a unique set of identifiers.  In this
+   case, the "key" that uniquely identifies a given object consists of
+   the set of identifiers.
+
+3.2.1.  Example: Extended IS Reachability
+
+   As an example, consider the Extended IS reachability TLV (Type 22)
+   [RFC5305].  A neighbor in this TLV is specified by:
+
+   *  7 octets of a system ID and pseudonode number
+
+   *  3 octets of a default metric
+
+   *  Optionally, one or more of the following link identifiers encoded
+      as sub-TLVs:
+
+      -  an IPv4 interface address and IPv4 neighbor address as
+         specified in [RFC5305]
+
+      -  an IPv6 interface address and IPv6 neighbor address as
+         specified in [RFC6119]
+
+      -  Link Local/Remote Identifiers as specified in [RFC5307]
+
+   The key consists of the 7 octets of system ID and pseudonode number
+   plus the set of link identifiers that are present.
+
+3.2.2.  Example: Extended IP Reachability
+
+   As another example, consider the Extended IP reachability TLV (Type
+   135) [RFC5305].  A prefix in this TLV is specified by:
+
+   *  4 octets of metric information
+
+   *  1 octet of control information that includes 6 bits specifying the
+      prefix length
+
+   *  0-4 octets of an IPv4 prefix
+
+   The above are followed by up to 250 octets of sub-TLV information.
+
+   The key consists of the 6 bits of prefix length plus 0-4 octets of an
+   IPv4 prefix.
+
+4.  Multi-Part TLVs
+
+   If a router advertises multiple TLV tuples with the same TLV type and
+   the same key (when applicable) in an IS-IS Hello (IIH) packet or in
+   the set of LSPs for a given level, they are considered a Multi-Part
+   TLV (MP-TLV).
+
+   In the absence of MP-TLV support, when a router receives an MP-TLV,
+   the receiver chooses which TLV will be processed and which TLV will
+   be ignored.  Note that this can occur either legitimately as a
+   transient condition when a TLV moves from one LSP to another or as a
+   result of a defect in the sending implementation.
+
+   In the presence of MP-TLV support, when a router receives an MP-TLV,
+   information from all the TLVs is processed.
+
+   The encoding of TLVs is not altered by the introduction of MP-TLV
+   support.  In particular, the "key" that is used to identify the set
+   of TLVs that form an MP-TLV is the same key used in the absence of
+   MP-TLV support.  Also note the definition of the "key" is part of the
+   specification(s) that define(s) the TLV and is therefore outside the
+   scope of this document.
+
+   NOTE: This document intentionally does not include a definition of
+   the key for each codepoint.  To do so would be redundant and risk
+   unintentionally deviating from the definition that already exists in
+   the relevant specifications.  Also, the term "key" is a generic term
+   that is not used in the relevant specifications.
+
+   Each TLV that is part of an MP-TLV MUST be parsable independent of
+   other TLVs in the MP-TLV.  Breaking of a single sub-TLV or other data
+   unit across TLVs MUST NOT be done.  Breaking of a data unit across
+   TLVs results in an invalid encoding.  Guidelines to receivers for
+   handling such a case are specified in [RFC8918].
+
+5.  Procedure for Receiving Multi-Part TLVs
+
+   A router that receives an MP-TLV MUST accept all of the information
+   in all of the parts.  The order of arrival and placement of the TLV
+   parts in LSP fragments is irrelevant.  Multiple TLV parts MAY occur
+   in a single LSP or parts MAY occur in different LSPs.
+
+   The placement of the TLV parts in an IIH is irrelevant.
+
+   When processing MP-TLVs, implementations MUST NOT impose a minimum
+   length check.  Although MP-TLVs SHOULD NOT be sent unless the
+   capacity of a single TLV (255 octets) is exceeded, receivers MUST NOT
+   reject MP-TLVs if senders do not strictly adhere to this constraint.
+   For example, if two MP-TLVs are received, each of which has a length
+   of 100 bytes, the fact that the total amount of data does not exceed
+   255 bytes MUST NOT cause the TLVs to be rejected.  See Section 8.2
+   for guidance on sending MP-TLVs.
+
+   The contents of an MP-TLV MUST be processed as if they were
+   concatenated.  If the internals of the TLV contain key information,
+   then replication of the key information MUST be taken to indicate
+   that subsequent data MUST be processed as if the subsequent data were
+   concatenated after a single copy of the key information.
+
+   For example, suppose that a router receives an LSP with a Multi-Part
+   Extended IS reachability TLV.  The first part contains key
+   information K with unique sub-TLVs A, B, and C.  The second part
+   contains key information K with unique sub-TLVs D, E, and F.  The
+   receiving router must then process this as having key information K
+   and unique sub-TLVs A, B, C, D, E, F, or, because ordering is
+   irrelevant, unique sub-TLVs D, E, F, A, B, C, or any other
+   permutation.
+
+   A TLV may contain information in its fixed part that is not part of
+   the key.  For example, the metric in both the Extended IS
+   reachability TLV and the Extended IP Reachability TLV does not
+   specify which object the TLV refers to, and thus is not part of the
+   key.  Having inconsistent information in different parts of an MP-TLV
+   is an error.
+
+   It is also possible that information that is not part of the fixed
+   part of a TLV can be duplicated, e.g., a sub-TLV that is intended to
+   only appear once appears multiple times and has inconsistent values.
+   This could occur within the same TLV or in different parts of an MP-
+   TLV.  This is also an error.
+
+   The document defining the TLV should specify how to handle such
+   cases.  If such a document is not explicit in how to handle such
+   cases, the following procedure is defined:
+
+   *  The first occurrence in the lowest numbered LSP is used.
+      Subsequent occurrences in the same LSP or higher numbered LSPs are
+      ignored.
+
+   *  In the case of IIHs, the first occurrence in the IIH is used.
+      Subsequent occurrences in the IIH are ignored.
+
+6.  Specification of Applicability of Multi-Part TLVs
+
+   As mentioned in Section 1, existing specifications for some TLVs have
+   explicitly stated that the use of MP-TLV procedures are applicable to
+   that codepoint.  However, MP-TLV procedures are potentially
+   applicable to any codepoint that allows sub-TLVs to be included as
+   part of the information advertised.  MP-TLV procedures may also be
+   applicable to codepoints that do not support sub-TLVs, but which
+   define an unbounded number of attributes that may be advertised
+   within a single codepoint.  An example of the latter is GMPLS-SRLG as
+   defined in [RFC5307].
+
+   The lack of explicit indication of applicability of MP-TLV procedures
+   for all codepoints to which such procedures could be applied
+   contributes to potential interoperability problems if/when there is
+   need to advertise more than 255 octets of information for such a
+   codepoint.
+
+   This document makes explicit the applicability of MP-TLV procedures
+   for all existing codepoints defined for the IS-IS protocol by
+   extending existing and relevant IANA protocol registries to include
+   an explicit indication of applicability of MP-TLV procedures for each
+   codepoint.  See Section 9.  Therefore, any new codepoints defined by
+   future protocol extensions will explicitly indicate the applicability
+   of MP-TLV procedures to the new codepoints.
+
+7.  MP-TLV Capability Advertisement
+
+   Introduction of the use of MP-TLV for codepoints where the existing
+   specifications have not explicitly defined MP-TLV support can be
+   extremely disruptive to network operations in cases where not all
+   routers in the network support MP-TLV for those codepoints.  Partial
+   deployment can easily result in traffic loss and/or other unexpected
+   behaviors that may be hard to diagnose.
+
+   For example, if there are multiple TLVs associated with the
+   advertisement of a neighbor and an implementation does not process
+   all of the link attributes advertised, then constrained path
+   calculations based on those attributes are likely to produce
+   incorrect or unexpected results.  This could produce forwarding loops
+   or dropped traffic.
+
+   As an aid to network operators when diagnosing such situations, a new
+   sub-TLV of the IS-IS Router CAPABILITY TLV [RFC7981] is defined:
+
+   MP-TLV Support for TLVs with Implicit Support
+
+   Type:  30 (1 octet)
+   Length:  0 (1 octet)
+
+   Routers that support MP-TLV for codepoints for which existing
+   specifications do not explicitly define such support, but for which
+   MP-TLV is applicable, SHOULD include this sub-TLV in a Router
+   CAPABILITY TLV.
+
+   Scope of the associated Router CAPABILITY TLV is per level (S-bit
+   clear) [RFC7981].
+
+   This advertisement is for informational purposes only.  IS-IS
+   protocol implementations MUST NOT alter what is sent or how what is
+   received is processed based on these advertisements.
+
+   The sub-TLV intentionally does not provide a syntax to specify MP-TLV
+   support on a per-codepoint basis.  It is presumed that if such
+   support is provided that it applies to all relevant codepoints.  It
+   is understood that in reality, a given implementation might limit MP-
+   TLV support to particular codepoints based on the needs of the
+   deployment scenarios in which it is used.  Therefore, diligence is
+   still required on the part of the operator to ensure that
+   configurations which require the sending of an MP-TLV for a given
+   codepoint are not introduced on any router in the network until all
+   routers in the network support MP-TLV for the relevant codepoints.
+
+   The Router CAPABILITY TLV is meant to advertise capabilities that are
+   of direct use to the IS-IS protocol.  The MP-TLV Support sub-TLV
+   advertises management information, which is not of direct use to the
+   protocol.  The intent is to provide information that may be of use to
+   a network operator.  This exception to the intended use of the Router
+   CAPABILITY TLV is introduced to help mitigate the potential
+   disruptiveness associated with the introduction of MP-TLV support in
+   cases where such support has not been explicitly defined.  This is
+   not intended to introduce a generic new use case for the Router
+   CAPABILITY TLV.
+
+   NOTE: A more appropriate and robust mechanism to provide detailed
+   information on what a given implementation supports is to utilize
+   YANG to define Protocol Implementation Conformance Statement (PICS).
+   An example of this can be found in [PICS-YANG].
+
+8.  Deployment Considerations
+
+   Sending of MP-TLVs in the presence of routers that do not correctly
+   process such advertisements can result in interoperability issues,
+   including incorrect forwarding of packets.  This section discusses
+   best practices to be used when a deployment requires the use of MP-
+   TLVs for codepoints for which existing specifications do not
+   explicitly indicate MP-TLV support.
+
+   While it is not in scope for this document to mandate how
+   implementations provide the means to prevent (or at least make less
+   likely) partial deployment of MP-TLV for a given codepoint, it is
+   important to emphasize the need to assist operators in avoiding
+   inadvertent problematic deployment scenarios.  Providing appropriate
+   controls to enable/disable the sending of MP-TLVs as discussed in
+   Section 8.1 is important to avoid interoperability issues.
+
+8.1.  Controls and Alarms
+
+   It is RECOMMENDED that implementations that support the sending of
+   MP-TLVs provide configuration controls that enable/disable generation
+   of MP-TLVs.  Given that MP-TLV support in a given implementation may
+   vary on a per-TLV basis, these controls SHOULD provide support at a
+   per-codepoint granularity.  For example, an implementation might
+   support MP-TLVs for IS Extended Reachability but not for IP
+   Reachability.
+
+   Implementations that support disablement of MP-TLVs MUST log the
+   following occurrences:
+
+   *  An MP-TLV is received when use of MP-TLVs is disabled.
+
+   *  Local LSP generation requires the use of MP-TLVs when generation
+      of MP-TLVs is disabled.
+
+   Network operators SHOULD NOT enable MP-TLVs until ensuring that all
+   implementations that will receive the MP-TLVs are capable of
+   interpreting them correctly as described in Section 5.
+
+8.2.  Restrictions on Generation of MP-TLVs
+
+   This section discusses restrictions on sending of MP-TLVs.  When
+   applying these restrictions, it is assumed that it has already been
+   determined that sending of MP-TLVs is allowed based on the setting of
+   the controls discussed in Section 8.1.
+
+   Sending a single TLV with all the information about an object is
+   preferable to sending multiple TLVs.  It is simpler and more
+   efficient to parse information from a single TLV than to combine the
+   information from multiple TLVs.  Implementations SHOULD NOT send
+   multiple TLVs unless MP-TLV is applicable to the TLV and the amount
+   of information that is required to be sent exceeds the capacity of a
+   single TLV.  For example, when additional space is required in an
+   existing TLV, as long as there is space in the TLV, information
+   SHOULD NOT be split into multiple TLVs.  If there is no space in the
+   current LSP to fit the now larger TLV, the TLV SHOULD be moved to a
+   new LSP.
+
+9.  IANA Considerations
+
+9.1.  MP-TLV Support Sub-TLV
+
+   IANA has registered the following codepoint from the "IS-IS Sub-TLVs
+   for IS-IS Router CAPABILITY TLV" registry (see
+   <https://www.iana.org/assignments/isis-tlv-codepoints>):
+
+   Type:  30
+   Description:  MP-TLV Support for TLVs with Implicit Support
+   MP-TLV Applicability:  N
+   Reference:  Section 7 of RFC 9885
+
+9.2.  Extension to IS-IS Top-Level TLV Registries
+
+   IANA has extended a number of registries within the "IS-IS TLV
+   Codepoints" registry group to include a column that indicates whether
+   the MP-TLV procedures described in this document are applicable to
+   that codepoint.  "Y" indicates that MP-TLV is applicable.  "N"
+   indicates MP-TLV is not applicable.
+
+   The following subsections provide the initial contents of the new
+   column for a number of existing registries.  The initial values for
+   MP-TLV applicability defined in the following subsections are based
+   on the rule that MP-TLV is applicable to any codepoint that supports
+   sub-TLVs, without regard to whether the sub-TLVs that are currently
+   defined are sufficient to require MP-TLVs to be sent.
+
+   To access the relevant IANA registry, search for the registry name
+   associated with each subsection at <https://www.iana.org/assignments/
+   isis-tlv-codepoints>.
+
+9.2.1.  MP-TLV for IS-IS Top-Level TLV Codepoints
+
+   IANA has added the MP column to the "IS-IS Top-Level TLV Codepoints"
+   registry and populated it as shown in Table 1.
+
+          +===========+====================================+====+
+          | Value     | Name                               | MP |
+          +===========+====================================+====+
+          | 0         | Reserved                           |    |
+          +-----------+------------------------------------+----+
+          | 1         | Area Addresses                     | N  |
+          +-----------+------------------------------------+----+
+          | 2         | IIS Neighbors                      | N  |
+          +-----------+------------------------------------+----+
+          | 3         | ES Neighbors                       | N  |
+          +-----------+------------------------------------+----+
+          | 4         | Part. DIS                          | N  |
+          +-----------+------------------------------------+----+
+          | 5         | Prefix Neighbors                   | N  |
+          +-----------+------------------------------------+----+
+          | 6         | IIS Neighbors                      | N  |
+          +-----------+------------------------------------+----+
+          | 7         | Instance Identifier                | Y  |
+          +-----------+------------------------------------+----+
+          | 8         | Padding                            | N  |
+          +-----------+------------------------------------+----+
+          | 9         | LSP Entries                        | N  |
+          +-----------+------------------------------------+----+
+          | 10        | Authentication                     | N  |
+          +-----------+------------------------------------+----+
+          | 11        | ESN TLV                            | N  |
+          +-----------+------------------------------------+----+
+          | 12        | Opt. Checksum                      | N  |
+          +-----------+------------------------------------+----+
+          | 13        | Purge Originator Identification    | N  |
+          +-----------+------------------------------------+----+
+          | 14        | LSPBufferSize                      | N  |
+          +-----------+------------------------------------+----+
+          | 15        | Router-Fingerprint                 | N  |
+          +-----------+------------------------------------+----+
+          | 16        | Reverse Metric                     | N  |
+          +-----------+------------------------------------+----+
+          | 17        | IS-IS Area Node IDs TLV            | N  |
+          +-----------+------------------------------------+----+
+          | 18        | IS-IS Flooding Path TLV            | N  |
+          +-----------+------------------------------------+----+
+          | 19        | IS-IS Flooding Request TLV         | N  |
+          +-----------+------------------------------------+----+
+          | 20        | Area Proxy                         | Y  |
+          +-----------+------------------------------------+----+
+          | 21        | Flooding Parameters TLV            | Y  |
+          +-----------+------------------------------------+----+
+          | 22        | Extended IS reachability           | Y  |
+          +-----------+------------------------------------+----+
+          | 23        | IS Neighbor Attribute              | Y  |
+          +-----------+------------------------------------+----+
+          | 24        | IS Alias ID                        | N  |
+          +-----------+------------------------------------+----+
+          | 25        | L2 Bundle Member Attributes        | Y  |
+          +-----------+------------------------------------+----+
+          | 26        | Unassigned                         |    |
+          +-----------+------------------------------------+----+
+          | 27        | SRv6 Locator                       | Y  |
+          +-----------+------------------------------------+----+
+          | 28-41     | Unassigned                         |    |
+          +-----------+------------------------------------+----+
+          | 42        | DECnet Phase IV                    | N  |
+          +-----------+------------------------------------+----+
+          | 43-65     | Unassigned                         |    |
+          +-----------+------------------------------------+----+
+          | 66        | Lucent Proprietary                 | N  |
+          +-----------+------------------------------------+----+
+          | 67-125    | Unassigned                         |    |
+          +-----------+------------------------------------+----+
+          | 126       | IPv4 Algorithm Prefix Reachability | N  |
+          +-----------+------------------------------------+----+
+          | 127       | IPv6 Algorithm Prefix Reachability | N  |
+          +-----------+------------------------------------+----+
+          | 128       | IP Int. Reach                      | N  |
+          +-----------+------------------------------------+----+
+          | 129       | Prot. Supported                    | N  |
+          +-----------+------------------------------------+----+
+          | 130       | IP Ext. Address                    | N  |
+          +-----------+------------------------------------+----+
+          | 131       | IDRPI                              | N  |
+          +-----------+------------------------------------+----+
+          | 132       | IP Intf. Address                   | N  |
+          +-----------+------------------------------------+----+
+          | 133       | Illegal                            | N  |
+          +-----------+------------------------------------+----+
+          | 134       | Traffic Engineering router ID      | N  |
+          +-----------+------------------------------------+----+
+          | 135       | Extended IP reachability           | Y  |
+          +-----------+------------------------------------+----+
+          | 136       | Unassigned                         |    |
+          +-----------+------------------------------------+----+
+          | 137       | Dynamic Name                       | N  |
+          +-----------+------------------------------------+----+
+          | 138       | GMPLS-SRLG                         | Y  |
+          +-----------+------------------------------------+----+
+          | 139       | IPv6 SRLG                          | N  |
+          +-----------+------------------------------------+----+
+          | 140       | IPv6 TE Router ID                  | N  |
+          +-----------+------------------------------------+----+
+          | 141       | inter-AS reachability information  | Y  |
+          +-----------+------------------------------------+----+
+          | 142       | GADDR-TLV                          | Y  |
+          +-----------+------------------------------------+----+
+          | 143       | MT-Port-Cap-TLV                    | Y  |
+          +-----------+------------------------------------+----+
+          | 144       | MT-Capability TLV                  | Y  |
+          +-----------+------------------------------------+----+
+          | 145       | TRILL Neighbor TLV                 | N  |
+          +-----------+------------------------------------+----+
+          | 146       | Unassigned                         |    |
+          +-----------+------------------------------------+----+
+          | 147       | MAC-RI TLV                         | Y  |
+          +-----------+------------------------------------+----+
+          | 148       | BFD-Enabled TLV                    | Y  |
+          +-----------+------------------------------------+----+
+          | 149       | Segment Identifier / Label Binding | Y  |
+          +-----------+------------------------------------+----+
+          | 150       | Multi-Topology Segment Identifier  | Y  |
+          |           | / Label Binding                    |    |
+          +-----------+------------------------------------+----+
+          | 151-160   | Unassigned                         |    |
+          +-----------+------------------------------------+----+
+          | 161       | Flood Reflection                   | N  |
+          +-----------+------------------------------------+----+
+          | 162-175   | Unassigned                         |    |
+          +-----------+------------------------------------+----+
+          | 176       | Nortel Proprietary                 | N  |
+          +-----------+------------------------------------+----+
+          | 177       | Nortel Proprietary                 | N  |
+          +-----------+------------------------------------+----+
+          | 178-210   | Unassigned                         |    |
+          +-----------+------------------------------------+----+
+          | 211       | Restart TLV                        | N  |
+          +-----------+------------------------------------+----+
+          | 212-221   | Unassigned                         |    |
+          +-----------+------------------------------------+----+
+          | 222       | MT-ISN                             | Y  |
+          +-----------+------------------------------------+----+
+          | 223       | MT IS Neighbor Attribute           | Y  |
+          +-----------+------------------------------------+----+
+          | 224-228   | Unassigned                         |    |
+          +-----------+------------------------------------+----+
+          | 229       | M-Topologies                       | N  |
+          +-----------+------------------------------------+----+
+          | 230-231   | Unassigned                         |    |
+          +-----------+------------------------------------+----+
+          | 232       | IPv6 Intf. Addr.                   | N  |
+          +-----------+------------------------------------+----+
+          | 233       | IPv6 Global Interface Address TLV  | N  |
+          +-----------+------------------------------------+----+
+          | 234       | Unassigned                         |    |
+          +-----------+------------------------------------+----+
+          | 235       | MT IP. Reach                       | Y  |
+          +-----------+------------------------------------+----+
+          | 236       | IPv6 IP. Reach                     | Y  |
+          +-----------+------------------------------------+----+
+          | 237       | MT IPv6 IP. Reach                  | Y  |
+          +-----------+------------------------------------+----+
+          | 238       | Application-Specific SRLG          | Y  |
+          +-----------+------------------------------------+----+
+          | 239       | Unassigned                         |    |
+          +-----------+------------------------------------+----+
+          | 240       | P2P 3-Way Adj. State               | N  |
+          +-----------+------------------------------------+----+
+          | 241       | Unassigned                         |    |
+          +-----------+------------------------------------+----+
+          | 242       | IS-IS Router CAPABILITY TLV        | Y  |
+          +-----------+------------------------------------+----+
+          | 243       | Scope Flooding Support             | N  |
+          +-----------+------------------------------------+----+
+          | 244-250   | Unassigned                         |    |
+          +-----------+------------------------------------+----+
+          | 251       | Generic Information                | Y  |
+          +-----------+------------------------------------+----+
+          | 252-65535 | Unassigned                         |    |
+          +-----------+------------------------------------+----+
+
+                  Table 1: IS-IS Top-Level TLV Codepoints
+
+9.2.2.  MP-TLV for IS-IS Sub-TLVs for Reverse Metric TLV
+
+   IANA has added the MP column to the "IS-IS Sub-TLVs for Reverse
+   Metric TLV" registry and populated it as shown in Table 2.
+
+               +========+============================+====+
+               | Value  | Name                       | MP |
+               +========+============================+====+
+               | 0      | Reserved                   |    |
+               +--------+----------------------------+----+
+               | 1-17   | Unassigned                 |    |
+               +--------+----------------------------+----+
+               | 18     | Traffic Engineering Metric | N  |
+               +--------+----------------------------+----+
+               | 19-255 | Unassigned                 |    |
+               +--------+----------------------------+----+
+
+                   Table 2: IS-IS Sub-TLVs for Reverse
+                                Metric TLV
+
+9.2.3.  MP-TLV for IS-IS Sub-TLVs for TLVs Advertising Neighbor
+        Information
+
+   IANA has added the MP column to the "IS-IS Sub-TLVs for TLVs
+   Advertising Neighbor Information" registry and populated it as shown
+   in Table 3.
+
+   +=========+===================================================+====+
+   | Value   | Name                                              | MP |
+   +=========+===================================================+====+
+   | 0-2     | Unassigned                                        |    |
+   +---------+---------------------------------------------------+----+
+   | 3       | Administrative group (color)                      | N  |
+   +---------+---------------------------------------------------+----+
+   | 4       | Link Local/Remote Identifiers                     | N  |
+   +---------+---------------------------------------------------+----+
+   | 5       | Unassigned                                        |    |
+   +---------+---------------------------------------------------+----+
+   | 6       | IPv4 interface address                            | N  |
+   +---------+---------------------------------------------------+----+
+   | 7       | Unassigned                                        |    |
+   +---------+---------------------------------------------------+----+
+   | 8       | IPv4 neighbor address                             | N  |
+   +---------+---------------------------------------------------+----+
+   | 9       | Maximum link bandwidth                            | N  |
+   +---------+---------------------------------------------------+----+
+   | 10      | Maximum reservable link bandwidth                 | N  |
+   +---------+---------------------------------------------------+----+
+   | 11      | Unreserved bandwidth                              | N  |
+   +---------+---------------------------------------------------+----+
+   | 12      | IPv6 Interface Address                            | N  |
+   +---------+---------------------------------------------------+----+
+   | 13      | IPv6 Neighbor Address                             | N  |
+   +---------+---------------------------------------------------+----+
+   | 14      | Extended Administrative Group                     | N  |
+   +---------+---------------------------------------------------+----+
+   | 15      | Link MSD                                          | Y  |
+   +---------+---------------------------------------------------+----+
+   | 16      | Application-Specific Link Attributes              | Y  |
+   +---------+---------------------------------------------------+----+
+   | 17      | Generic Metric                                    | N  |
+   +---------+---------------------------------------------------+----+
+   | 18      | TE Default metric                                 | N  |
+   +---------+---------------------------------------------------+----+
+   | 19      | Link-attributes                                   | N  |
+   +---------+---------------------------------------------------+----+
+   | 20      | Link Protection Type                              | N  |
+   +---------+---------------------------------------------------+----+
+   | 21      | Interface Switching Capability Descriptor         | Y  |
+   +---------+---------------------------------------------------+----+
+   | 22      | Bandwidth Constraints                             | N  |
+   +---------+---------------------------------------------------+----+
+   | 23      | Unconstrained TE LSP Count (sub-)TLV              | N  |
+   +---------+---------------------------------------------------+----+
+   | 24      | Remote AS Number                                  | N  |
+   +---------+---------------------------------------------------+----+
+   | 25      | IPv4 Remote ASBR Identifier                       | N  |
+   +---------+---------------------------------------------------+----+
+   | 26      | IPv6 Remote ASBR Identifier                       | N  |
+   +---------+---------------------------------------------------+----+
+   | 27      | Interface Adjustment Capability Descriptor (IACD) | Y  |
+   +---------+---------------------------------------------------+----+
+   | 28      | MTU                                               | N  |
+   +---------+---------------------------------------------------+----+
+   | 29      | SPB-Metric                                        | N  |
+   +---------+---------------------------------------------------+----+
+   | 30      | SPB-A-OALG                                        | Y  |
+   +---------+---------------------------------------------------+----+
+   | 31      | Adjacency Segment Identifier                      | N  |
+   +---------+---------------------------------------------------+----+
+   | 32      | LAN Adjacency Segment Identifier                  | N  |
+   +---------+---------------------------------------------------+----+
+   | 33      | Unidirectional Link Delay                         | N  |
+   +---------+---------------------------------------------------+----+
+   | 34      | Min/Max Unidirectional Link Delay                 | N  |
+   +---------+---------------------------------------------------+----+
+   | 35      | Unidirectional Delay Variation                    | N  |
+   +---------+---------------------------------------------------+----+
+   | 36      | Unidirectional Link Loss                          | N  |
+   +---------+---------------------------------------------------+----+
+   | 37      | Unidirectional Residual Bandwidth                 | N  |
+   +---------+---------------------------------------------------+----+
+   | 38      | Unidirectional Available Bandwidth                | N  |
+   +---------+---------------------------------------------------+----+
+   | 39      | Unidirectional Utilized Bandwidth                 | N  |
+   +---------+---------------------------------------------------+----+
+   | 40      | RTM Capability                                    | N  |
+   +---------+---------------------------------------------------+----+
+   | 41      | L2 Bundle Member Adj-SID                          | Y  |
+   +---------+---------------------------------------------------+----+
+   | 42      | L2 Bundle Member LAN Adj-SID                      | Y  |
+   +---------+---------------------------------------------------+----+
+   | 43      | SRv6 End.X SID                                    | Y  |
+   +---------+---------------------------------------------------+----+
+   | 44      | SRv6 LAN End.X SID                                | Y  |
+   +---------+---------------------------------------------------+----+
+   | 45      | IPv6 Local ASBR Identifier                        | N  |
+   +---------+---------------------------------------------------+----+
+   | 46-160  | Unassigned                                        |    |
+   +---------+---------------------------------------------------+----+
+   | 161     | Flood Reflector Adjacency                         | N  |
+   +---------+---------------------------------------------------+----+
+   | 162-249 | Unassigned                                        |    |
+   +---------+---------------------------------------------------+----+
+   | 250-254 | Reserved for Cisco-specific extensions            |    |
+   +---------+---------------------------------------------------+----+
+   | 255     | Reserved for future expansion                     |    |
+   +---------+---------------------------------------------------+----+
+
+    Table 3: IS-IS Sub-TLVs for TLVs Advertising Neighbor Information
+
+9.2.4.  MP-TLV for IS-IS Sub-TLVs for TLVs Advertising Prefix
+        Reachability
+
+   IANA has added the MP column to the "IS-IS Sub-TLVs for TLVs
+   Advertising Prefix Reachability" registry and populated it as shown
+   in Table 4.
+
+         +========+=========================================+====+
+         | Value  | Name                                    | MP |
+         +========+=========================================+====+
+         | 0      | Unassigned                              |    |
+         +--------+-----------------------------------------+----+
+         | 1      | 32-bit Administrative Tag Sub-TLV       | Y  |
+         +--------+-----------------------------------------+----+
+         | 2      | 64-bit Administrative Tag Sub-TLV       | Y  |
+         +--------+-----------------------------------------+----+
+         | 3      | Prefix Segment Identifier               | N  |
+         +--------+-----------------------------------------+----+
+         | 4      | Prefix Attribute Flags                  | N  |
+         +--------+-----------------------------------------+----+
+         | 5      | SRv6 End SID                            | Y  |
+         +--------+-----------------------------------------+----+
+         | 6      | Flexible Algorithm Prefix Metric (FAPM) | N  |
+         +--------+-----------------------------------------+----+
+         | 7-10   | Unassigned                              |    |
+         +--------+-----------------------------------------+----+
+         | 11     | IPv4 Source Router ID                   | N  |
+         +--------+-----------------------------------------+----+
+         | 12     | IPv6 Source Router ID                   | N  |
+         +--------+-----------------------------------------+----+
+         | 13-31  | Unassigned                              |    |
+         +--------+-----------------------------------------+----+
+         | 32     | BIER Info                               | Y  |
+         +--------+-----------------------------------------+----+
+         | 33-255 | Unassigned                              |    |
+         +--------+-----------------------------------------+----+
+
+            Table 4: IS-IS Sub-TLVs for TLVs Advertising Prefix
+                                Reachability
+
+9.2.5.  MP-TLV for IS-IS Sub-TLVs for MT-Capability TLV
+
+   IANA has added the MP column to the "IS-IS Sub-TLVs for MT-Capability
+   TLV" registry and populated it as shown in Table 5.
+
+              +========+==============================+====+
+              | Value  | Name                         | MP |
+              +========+==============================+====+
+              | 0      | Reserved                     |    |
+              +--------+------------------------------+----+
+              | 1      | SPB-Inst                     | N  |
+              +--------+------------------------------+----+
+              | 2      | SPB-I-OALG                   | Y  |
+              +--------+------------------------------+----+
+              | 3      | SPBM-SI                      | Y  |
+              +--------+------------------------------+----+
+              | 4      | SPBV-ADDR                    | Y  |
+              +--------+------------------------------+----+
+              | 5      | Unassigned                   |    |
+              +--------+------------------------------+----+
+              | 6      | NICKNAME                     | Y  |
+              +--------+------------------------------+----+
+              | 7      | TREES                        | N  |
+              +--------+------------------------------+----+
+              | 8      | TREE-RT-IDs                  | Y  |
+              +--------+------------------------------+----+
+              | 9      | TREE-USE-IDs                 | Y  |
+              +--------+------------------------------+----+
+              | 10     | INT-VLAN                     | Y  |
+              +--------+------------------------------+----+
+              | 11-12  | Unassigned                   |    |
+              +--------+------------------------------+----+
+              | 13     | TRILL-VER                    | N  |
+              +--------+------------------------------+----+
+              | 14     | VLAN-GROUP                   | Y  |
+              +--------+------------------------------+----+
+              | 15     | INT-LABEL                    | Y  |
+              +--------+------------------------------+----+
+              | 16     | RBCHANNELS                   | Y  |
+              +--------+------------------------------+----+
+              | 17     | AFFINITY                     | Y  |
+              +--------+------------------------------+----+
+              | 18     | LABEL-GROUP                  | Y  |
+              +--------+------------------------------+----+
+              | 19-20  | Unassigned                   |    |
+              +--------+------------------------------+----+
+              | 21     | Topology sub-TLV             | Y  |
+              +--------+------------------------------+----+
+              | 22     | Hop sub-TLV                  | N  |
+              +--------+------------------------------+----+
+              | 23     | Bandwidth Constraint sub-TLV | N  |
+              +--------+------------------------------+----+
+              | 24     | Bandwidth Assignment sub-TLV | N  |
+              +--------+------------------------------+----+
+              | 25     | Timestamp sub-TLV            | N  |
+              +--------+------------------------------+----+
+              | 26-254 | Unassigned                   |    |
+              +--------+------------------------------+----+
+              | 255    | Reserved                     |    |
+              +--------+------------------------------+----+
+
+              Table 5: IS-IS Sub-TLVs for MT-Capability TLV
+
+9.2.6.  MP-TLV for IS-IS Sub-TLVs for IS-IS Router CAPABILITY TLV
+
+   IANA has added the MP column to the "IS-IS Sub-TLVs for IS-IS Router
+   CAPABILITY TLV" registry and populated it as shown in Table 6.
+
+           +=========+====================================+====+
+           | Value   | Name                               | MP |
+           +=========+====================================+====+
+           | 0       | Reserved                           |    |
+           +---------+------------------------------------+----+
+           | 1       | TE Node Capability Descriptor      | N  |
+           +---------+------------------------------------+----+
+           | 2       | Segment Routing Capability         | N  |
+           +---------+------------------------------------+----+
+           | 3       | TE-MESH-GROUP TLV (IPv4)           | Y  |
+           +---------+------------------------------------+----+
+           | 4       | TE-MESH-GROUP TLV (IPv6)           | Y  |
+           +---------+------------------------------------+----+
+           | 5       | PCED sub-TLV                       | N  |
+           +---------+------------------------------------+----+
+           | 6       | NICKNAME                           | Y  |
+           +---------+------------------------------------+----+
+           | 7       | TREES                              | N  |
+           +---------+------------------------------------+----+
+           | 8       | TREE-RT-IDs                        | Y  |
+           +---------+------------------------------------+----+
+           | 9       | TREE-USE-IDs                       | Y  |
+           +---------+------------------------------------+----+
+           | 10      | INT-VLAN                           | Y  |
+           +---------+------------------------------------+----+
+           | 11      | IPv4 TE Router ID                  | N  |
+           +---------+------------------------------------+----+
+           | 12      | IPv6 TE Router ID                  | N  |
+           +---------+------------------------------------+----+
+           | 13      | TRILL-VER                          | N  |
+           +---------+------------------------------------+----+
+           | 14      | VLAN-GROUP                         | Y  |
+           +---------+------------------------------------+----+
+           | 15      | INT-LABEL                          | Y  |
+           +---------+------------------------------------+----+
+           | 16      | RBCHANNELS                         | Y  |
+           +---------+------------------------------------+----+
+           | 17      | AFFINITY                           | Y  |
+           +---------+------------------------------------+----+
+           | 18      | LABEL-GROUP                        | Y  |
+           +---------+------------------------------------+----+
+           | 19      | Segment Routing Algorithm          | N  |
+           +---------+------------------------------------+----+
+           | 20      | S-BFD Discriminators               | N  |
+           +---------+------------------------------------+----+
+           | 21      | Node-Admin-Tag                     | N  |
+           +---------+------------------------------------+----+
+           | 22      | Segment Routing Local Block (SRLB) | N  |
+           +---------+------------------------------------+----+
+           | 23      | Node MSD                           | Y  |
+           +---------+------------------------------------+----+
+           | 24      | Segment Routing Mapping Server     | N  |
+           |         | Preference (SRMS Preference)       |    |
+           +---------+------------------------------------+----+
+           | 25      | SRv6 Capabilities                  | N  |
+           +---------+------------------------------------+----+
+           | 26      | Flexible Algorithm Definition      | N  |
+           |         | (FAD)                              |    |
+           +---------+------------------------------------+----+
+           | 27      | IS-IS Area Leader Sub-TLV          | N  |
+           +---------+------------------------------------+----+
+           | 28      | IS-IS Dynamic Flooding Sub-TLV     | N  |
+           +---------+------------------------------------+----+
+           | 29      | IP Algorithm Sub-TLV               | N  |
+           +---------+------------------------------------+----+
+           | 30-160  | Unassigned                         |    |
+           +---------+------------------------------------+----+
+           | 161     | Flood Reflection Discovery         | Y  |
+           +---------+------------------------------------+----+
+           | 162-255 | Unassigned                         |    |
+           +---------+------------------------------------+----+
+
+                  Table 6: IS-IS Sub-TLVs for IS-IS Router
+                               CAPABILITY TLV
+
+9.2.7.  IS-IS Sub-Sub-TLVs for SRv6 Capabilities Sub-TLV
+
+   IANA has added the MP column to the "IS-IS Sub-Sub-TLVs for SRv6
+   Capabilities Sub-TLV" registry and populated it as shown in Table 7.
+
+                        +=======+============+====+
+                        | Value | Name       | MP |
+                        +=======+============+====+
+                        | 0     | Reserved   |    |
+                        +-------+------------+----+
+                        | 1-255 | Unassigned |    |
+                        +-------+------------+----+
+
+                          Table 7: IS-IS Sub-Sub-
+                               TLVs for SRv6
+                            Capabilities Sub-TLV
+
+9.2.8.  MP-TLV IS-IS Sub-Sub-TLVs for BIER Info Sub-TLV
+
+   IANA has added the MP column to the "IS-IS Sub-Sub-TLVs for BIER Info
+   Sub-TLV" registry and populated it as shown in Table 8.
+
+                 +=======+=========================+====+
+                 | Value | Name                    | MP |
+                 +=======+=========================+====+
+                 | 0     | Unassigned              |    |
+                 +-------+-------------------------+----+
+                 | 1     | BIER MPLS Encapsulation | N  |
+                 +-------+-------------------------+----+
+                 | 2     | BIER PHP Request        | N  |
+                 +-------+-------------------------+----+
+                 | 3-255 | Unassigned              |    |
+                 +-------+-------------------------+----+
+
+                   Table 8: IS-IS Sub-Sub-TLVs for BIER
+                               Info Sub-TLV
+
+9.2.9.  MP-TLV for IS-IS Sub-TLVs for Segment Identifier/Label Binding
+        TLVs
+
+   IANA has added the MP column to the "IS-IS Sub-TLVs for Segment
+   Identifier/Label Binding TLVs" registry and populated it as shown in
+   Table 9.
+
+                +=======+===========================+====+
+                | Value | Name                      | MP |
+                +=======+===========================+====+
+                | 0     | Reserved                  |    |
+                +-------+---------------------------+----+
+                | 1     | SID/Label                 | N  |
+                +-------+---------------------------+----+
+                | 2     | Unassigned                |    |
+                +-------+---------------------------+----+
+                | 3     | Prefix Segment Identifier | N  |
+                +-------+---------------------------+----+
+                | 4-255 | Unassigned                |    |
+                +-------+---------------------------+----+
+
+                   Table 9: IS-IS Sub-TLVs for Segment
+                      Identifier/Label Binding TLVs
+
+9.2.10.  MP-TLV for IS-IS Sub-Sub-TLV Codepoints for Application-
+         Specific Link Attributes
+
+   IANA has added the MP column to the "IS-IS Sub-Sub-TLV Codepoints for
+   Application-Specific Link Attributes" registry and populated it as
+   shown in Table 10.
+
+           +========+====================================+====+
+           | Value  | Name                               | MP |
+           +========+====================================+====+
+           | 0-2    | Unassigned                         |    |
+           +--------+------------------------------------+----+
+           | 3      | Administrative group (color)       | N  |
+           +--------+------------------------------------+----+
+           | 4-8    | Unassigned                         |    |
+           +--------+------------------------------------+----+
+           | 9      | Maximum link bandwidth             | N  |
+           +--------+------------------------------------+----+
+           | 10     | Maximum reservable link bandwidth  | N  |
+           +--------+------------------------------------+----+
+           | 11     | Unreserved bandwidth               | N  |
+           +--------+------------------------------------+----+
+           | 12-13  | Unassigned                         |    |
+           +--------+------------------------------------+----+
+           | 14     | Extended Administrative Group      | N  |
+           +--------+------------------------------------+----+
+           | 15-16  | Unassigned                         |    |
+           +--------+------------------------------------+----+
+           | 17     | Generic Metric                     | Y  |
+           +--------+------------------------------------+----+
+           | 18     | TE Default metric                  | N  |
+           +--------+------------------------------------+----+
+           | 19-32  | Unassigned                         |    |
+           +--------+------------------------------------+----+
+           | 33     | Unidirectional Link Delay          | N  |
+           +--------+------------------------------------+----+
+           | 34     | Min/Max Unidirectional Link Delay  | N  |
+           +--------+------------------------------------+----+
+           | 35     | Unidirectional Delay Variation     | N  |
+           +--------+------------------------------------+----+
+           | 36     | Unidirectional Link Loss           | N  |
+           +--------+------------------------------------+----+
+           | 37     | Unidirectional Residual Bandwidth  | N  |
+           +--------+------------------------------------+----+
+           | 38     | Unidirectional Available Bandwidth | N  |
+           +--------+------------------------------------+----+
+           | 39     | Unidirectional Utilized Bandwidth  | N  |
+           +--------+------------------------------------+----+
+           | 40-255 | Unassigned                         |    |
+           +--------+------------------------------------+----+
+
+                Table 10: IS-IS Sub-Sub-TLV Codepoints for
+                   Application-Specific Link Attributes
+
+9.2.11.  MP-TLV for IS-IS Sub-TLVs for Application-Specific SRLG TLV
+
+   IANA has added the MP column to the "IS-IS Sub-TLVs for Application-
+   Specific SRLG TLV" registry and populated it as shown in Table 11.
+
+              +========+===============================+====+
+              | Value  | Name                          | MP |
+              +========+===============================+====+
+              | 0-3    | Unassigned                    |    |
+              +--------+-------------------------------+----+
+              | 4      | Link Local/Remote Identifiers | N  |
+              +--------+-------------------------------+----+
+              | 5      | Unassigned                    |    |
+              +--------+-------------------------------+----+
+              | 6      | IPv4 interface address        | N  |
+              +--------+-------------------------------+----+
+              | 7      | Unassigned                    |    |
+              +--------+-------------------------------+----+
+              | 8      | IPv4 neighbor address         | N  |
+              +--------+-------------------------------+----+
+              | 9-11   | Unassigned                    |    |
+              +--------+-------------------------------+----+
+              | 12     | IPv6 Interface Address        | N  |
+              +--------+-------------------------------+----+
+              | 13     | IPv6 Neighbor Address         | N  |
+              +--------+-------------------------------+----+
+              | 14-255 | Unassigned                    |    |
+              +--------+-------------------------------+----+
+
+                 Table 11: IS-IS Sub-TLVs for Application-
+                             Specific SRLG TLV
+
+9.2.12.  MP-TLV for IS-IS Sub-Sub-TLVs for SRv6 SID Sub-TLVs
+
+   IANA has added the MP column to the "IS-IS Sub-Sub-TLVs for SRv6 SID
+   Sub-TLVs" registry and populated it as shown in Table 12.
+
+                    +=======+====================+====+
+                    | Value | Name               | MP |
+                    +=======+====================+====+
+                    | 0     | Reserved           |    |
+                    +-------+--------------------+----+
+                    | 1     | SRv6 SID Structure | N  |
+                    +-------+--------------------+----+
+                    | 2-255 | Unassigned         |    |
+                    +-------+--------------------+----+
+
+                        Table 12: IS-IS Sub-Sub-TLVs
+                           for SRv6 SID Sub-TLVs
+
+9.2.13.  MP-TLV for IS-IS Sub-Sub-TLVs for Flexible Algorithm Definition
+         Sub-TLV
+
+   IANA has added the MP column to the "IS-IS Sub-Sub-TLVs for Flexible
+   Algorithm Definition Sub-TLV" registry and populated it as shown in
+   Table 13.
+
+       +========+============================================+====+
+       | Value  | Name                                       | MP |
+       +========+============================================+====+
+       | 0      | Reserved                                   |    |
+       +--------+--------------------------------------------+----+
+       | 1      | Flexible Algorithm Exclude Admin Group     | N  |
+       +--------+--------------------------------------------+----+
+       | 2      | Flexible Algorithm Include-Any Admin Group | N  |
+       +--------+--------------------------------------------+----+
+       | 3      | Flexible Algorithm Include-All Admin Group | N  |
+       +--------+--------------------------------------------+----+
+       | 4      | Flexible Algorithm Definition Flags        | N  |
+       +--------+--------------------------------------------+----+
+       | 5      | Flexible Algorithm Exclude SRLG            | N  |
+       +--------+--------------------------------------------+----+
+       | 6      | IS-IS Exclude Minimum Bandwidth            | N  |
+       +--------+--------------------------------------------+----+
+       | 7      | IS-IS Exclude Maximum Delay                | N  |
+       +--------+--------------------------------------------+----+
+       | 8      | IS-IS Reference Bandwidth                  | N  |
+       +--------+--------------------------------------------+----+
+       | 9      | IS-IS Bandwidth Metric                     | N  |
+       +--------+--------------------------------------------+----+
+       | 10-255 | Unassigned                                 |    |
+       +--------+--------------------------------------------+----+
+
+           Table 13: IS-IS Sub-Sub-TLVs for Flexible Algorithm
+                            Definition Sub-TLV
+
+9.2.14.  MP-TLV for IS-IS Sub-Sub-TLVs for Flood Reflection Discovery
+         Sub-TLV
+
+   IANA has added the MP column to the "IS-IS Sub-Sub-TLVs for Flood
+   Reflection Discovery Sub-TLV" registry and populated it as shown in
+   Table 14.
+
+             +=========+================================+====+
+             | Value   | Name                           | MP |
+             +=========+================================+====+
+             | 0-160   | Unassigned                     |    |
+             +---------+--------------------------------+----+
+             | 161     | Flood Reflection Discovery     | N  |
+             |         | Tunnel Encapsulation Attribute |    |
+             +---------+--------------------------------+----+
+             | 162-255 | Unassigned                     |    |
+             +---------+--------------------------------+----+
+
+                   Table 14: IS-IS Sub-Sub-TLVs for Flood
+                        Reflection Discovery Sub-TLV
+
+10.  Security Considerations
+
+   This document creates no new security issues for IS-IS.  Additional
+   instances of existing TLVs expose no new information.
+
+   Note that support for MP-TLV may result in an implementation being
+   more robust in handling unexpected occurrences of MP-TLV.
+
+   Security concerns for IS-IS are addressed in [ISO10589], [RFC5304],
+   and [RFC5310].
+
+11.  References
+
+11.1.  Normative References
+
+   [ISO10589] ISO/IEC, "Information technology - Telecommunications and
+              information exchange between systems - Intermediate System
+              to Intermediate System intra-domain routeing information
+              exchange protocol for use in conjunction with the protocol
+              for providing the connectionless-mode network service (ISO
+              8473)", ISO/IEC 10589:2002, November 2002,
+              <https://www.iso.org/standard/30932.html>.
+
+   [RFC2119]  Bradner, S., "Key words for use in RFCs to Indicate
+              Requirement Levels", BCP 14, RFC 2119,
+              DOI 10.17487/RFC2119, March 1997,
+              <https://www.rfc-editor.org/info/rfc2119>.
+
+   [RFC5120]  Przygienda, T., Shen, N., and N. Sheth, "M-ISIS: Multi
+              Topology (MT) Routing in Intermediate System to
+              Intermediate Systems (IS-ISs)", RFC 5120,
+              DOI 10.17487/RFC5120, February 2008,
+              <https://www.rfc-editor.org/info/rfc5120>.
+
+   [RFC5304]  Li, T. and R. Atkinson, "IS-IS Cryptographic
+              Authentication", RFC 5304, DOI 10.17487/RFC5304, October
+              2008, <https://www.rfc-editor.org/info/rfc5304>.
+
+   [RFC5305]  Li, T. and H. Smit, "IS-IS Extensions for Traffic
+              Engineering", RFC 5305, DOI 10.17487/RFC5305, October
+              2008, <https://www.rfc-editor.org/info/rfc5305>.
+
+   [RFC5307]  Kompella, K., Ed. and Y. Rekhter, Ed., "IS-IS Extensions
+              in Support of Generalized Multi-Protocol Label Switching
+              (GMPLS)", RFC 5307, DOI 10.17487/RFC5307, October 2008,
+              <https://www.rfc-editor.org/info/rfc5307>.
+
+   [RFC5310]  Bhatia, M., Manral, V., Li, T., Atkinson, R., White, R.,
+              and M. Fanto, "IS-IS Generic Cryptographic
+              Authentication", RFC 5310, DOI 10.17487/RFC5310, February
+              2009, <https://www.rfc-editor.org/info/rfc5310>.
+
+   [RFC6119]  Harrison, J., Berger, J., and M. Bartlett, "IPv6 Traffic
+              Engineering in IS-IS", RFC 6119, DOI 10.17487/RFC6119,
+              February 2011, <https://www.rfc-editor.org/info/rfc6119>.
+
+   [RFC6213]  Hopps, C. and L. Ginsberg, "IS-IS BFD-Enabled TLV",
+              RFC 6213, DOI 10.17487/RFC6213, April 2011,
+              <https://www.rfc-editor.org/info/rfc6213>.
+
+   [RFC7356]  Ginsberg, L., Previdi, S., and Y. Yang, "IS-IS Flooding
+              Scope Link State PDUs (LSPs)", RFC 7356,
+              DOI 10.17487/RFC7356, September 2014,
+              <https://www.rfc-editor.org/info/rfc7356>.
+
+   [RFC7981]  Ginsberg, L., Previdi, S., and M. Chen, "IS-IS Extensions
+              for Advertising Router Information", RFC 7981,
+              DOI 10.17487/RFC7981, October 2016,
+              <https://www.rfc-editor.org/info/rfc7981>.
+
+   [RFC8174]  Leiba, B., "Ambiguity of Uppercase vs Lowercase in RFC
+              2119 Key Words", BCP 14, RFC 8174, DOI 10.17487/RFC8174,
+              May 2017, <https://www.rfc-editor.org/info/rfc8174>.
+
+   [RFC8202]  Ginsberg, L., Previdi, S., and W. Henderickx, "IS-IS
+              Multi-Instance", RFC 8202, DOI 10.17487/RFC8202, June
+              2017, <https://www.rfc-editor.org/info/rfc8202>.
+
+   [RFC8918]  Ginsberg, L., Wells, P., Li, T., Przygienda, T., and S.
+              Hegde, "Invalid TLV Handling in IS-IS", RFC 8918,
+              DOI 10.17487/RFC8918, September 2020,
+              <https://www.rfc-editor.org/info/rfc8918>.
+
+   [RFC9479]  Ginsberg, L., Psenak, P., Previdi, S., Henderickx, W., and
+              J. Drake, "IS-IS Application-Specific Link Attributes",
+              RFC 9479, DOI 10.17487/RFC9479, October 2023,
+              <https://www.rfc-editor.org/info/rfc9479>.
+
+11.2.  Informative References
+
+   [PICS-YANG]
+              Qu, Y., Ginsberg, L., Przygienda, A., Decraene, B., and Y.
+              Zhu, "YANG Model for IS-IS Protocol Implementation
+              Conformance Statement (PICS)", Work in Progress, Internet-
+              Draft, draft-ietf-lsr-isis-pics-yang-02, 20 October 2025,
+              <https://datatracker.ietf.org/doc/html/draft-ietf-lsr-
+              isis-pics-yang-02>.
+
+Contributors
+
+   The following individual made a substantial contribution to the
+   content of this document and should be considered a coauthor:
+
+   Chris Bowers
+   Email: cbowers107@gmail.com
+
+
+Authors' Addresses
+
+   Parag Kaneriya
+   Juniper Networks
+   Elnath-Exora Business Park Survey
+   Bangalore 560103
+   Karnataka
+   India
+   Email: pkaneria@juniper.net
+
+
+   Tony Li
+   Juniper Networks
+   1133 Innovation Way
+   Sunnyvale, California 94089
+   United States of America
+   Email: tony.li@tony.li
+
+
+   Antoni Przygienda
+   Juniper Networks
+   1133 Innovation Way
+   Sunnyvale, California 94089
+   United States of America
+   Email: prz@juniper.net
+
+
+   Shraddha Hegde
+   Juniper Networks
+   Elnath-Exora Business Park Survey
+   Bangalore 560103
+   Karnataka
+   India
+   Email: shraddha@juniper.net
+
+
+   Les Ginsberg
+   Cisco Systems
+   Email: ginsberg@cisco.com

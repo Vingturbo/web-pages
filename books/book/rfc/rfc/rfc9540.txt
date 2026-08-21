@@ -1,0 +1,512 @@
+﻿
+
+
+
+Internet Engineering Task Force (IETF)                          T. Pauly
+Request for Comments: 9540                                    Apple Inc.
+Category: Standards Track                                     T. Reddy.K
+ISSN: 2070-1721                                                    Nokia
+                                                           February 2024
+
+
+      Discovery of Oblivious Services via Service Binding Records
+
+Abstract
+
+   This document defines a parameter that can be included in Service
+   Binding (SVCB) and HTTPS DNS resource records to denote that a
+   service is accessible using Oblivious HTTP, by offering an Oblivious
+   Gateway Resource through which to access the target.  This document
+   also defines a mechanism for learning the key configuration of the
+   discovered Oblivious Gateway Resource.
+
+Status of This Memo
+
+   This is an Internet Standards Track document.
+
+   This document is a product of the Internet Engineering Task Force
+   (IETF).  It represents the consensus of the IETF community.  It has
+   received public review and has been approved for publication by the
+   Internet Engineering Steering Group (IESG).  Further information on
+   Internet Standards is available in Section 2 of RFC 7841.
+
+   Information about the current status of this document, any errata,
+   and how to provide feedback on it may be obtained at
+   https://www.rfc-editor.org/info/rfc9540.
+
+Copyright Notice
+
+   Copyright (c) 2024 IETF Trust and the persons identified as the
+   document authors.  All rights reserved.
+
+   This document is subject to BCP 78 and the IETF Trust's Legal
+   Provisions Relating to IETF Documents
+   (https://trustee.ietf.org/license-info) in effect on the date of
+   publication of this document.  Please review these documents
+   carefully, as they describe your rights and restrictions with respect
+   to this document.  Code Components extracted from this document must
+   include Revised BSD License text as described in Section 4.e of the
+   Trust Legal Provisions and are provided without warranty as described
+   in the Revised BSD License.
+
+Table of Contents
+
+   1.  Introduction
+   2.  Conventions and Definitions
+   3.  Applicability
+   4.  The "ohttp" SvcParamKey
+     4.1.  Use in HTTPS Service RRs
+     4.2.  Use in DNS Server SVCB RRs
+       4.2.1.  Use with DDR
+       4.2.2.  Use with DNR
+   5.  Gateway Location
+   6.  Key Configuration Fetching
+   7.  Security and Privacy Considerations
+     7.1.  Key Targeting Attacks
+     7.2.  dohpath Targeting Attacks
+   8.  IANA Considerations
+     8.1.  SVCB Service Parameter
+     8.2.  Well-Known URI
+   9.  References
+     9.1.  Normative References
+     9.2.  Informative References
+   Authors' Addresses
+
+1.  Introduction
+
+   Oblivious HTTP [OHTTP] allows clients to encrypt messages exchanged
+   with an Oblivious Target Resource (target).  The messages are
+   encapsulated in encrypted messages to an Oblivious Gateway Resource
+   (gateway), which offers Oblivious HTTP access to the target.  The
+   gateway is accessed via an Oblivious Relay Resource (relay), which
+   proxies the encapsulated messages to hide the identity of the client.
+   Overall, this architecture is designed in such a way that the relay
+   cannot inspect the contents of messages, and the gateway and target
+   cannot learn the client's identity from a single transaction.
+
+   Since Oblivious HTTP deployments typically involve very specific
+   coordination between clients, relays, and gateways, the key
+   configuration is often shared in a bespoke fashion.  However, some
+   deployments involve clients discovering targets and their associated
+   gateways more dynamically.  For example, a network might operate a
+   DNS resolver that provides more optimized or more relevant DNS
+   answers and is accessible using Oblivious HTTP, and might want to
+   advertise support for Oblivious HTTP via mechanisms like Discovery of
+   Designated Resolvers [DDR] and Discovery of Network-designated
+   Resolvers [DNR].  Clients can access these gateways through trusted
+   relays.
+
+   This document defines a way to use DNS resource records (RRs) to
+   advertise that an HTTP service supports Oblivious HTTP.  This
+   advertisement is a parameter that can be included in Service Binding
+   (SVCB) and HTTPS DNS RRs [SVCB] (Section 4).  The presence of this
+   parameter indicates that a service can act as a target and has a
+   gateway that can provide access to the target.
+
+   The client learns the URI to use for the gateway using a well-known
+   URI suffix [WELLKNOWN], "ohttp-gateway", which is accessed on the
+   target (Section 5).  This means that for deployments that support
+   this kind of discovery, the Gateway and Target Resources need to be
+   located on the same host.
+
+   This document also defines a way to fetch a gateway's key
+   configuration from the gateway (Section 6).
+
+   This mechanism does not aid in the discovery of relays; relay
+   configuration is out of scope for this document.  Models in which
+   this discovery mechanism is applicable are described in Section 3.
+
+2.  Conventions and Definitions
+
+   The key words "MUST", "MUST NOT", "REQUIRED", "SHALL", "SHALL NOT",
+   "SHOULD", "SHOULD NOT", "RECOMMENDED", "NOT RECOMMENDED", "MAY", and
+   "OPTIONAL" in this document are to be interpreted as described in
+   BCP 14 [RFC2119] [RFC8174] when, and only when, they appear in all
+   capitals, as shown here.
+
+3.  Applicability
+
+   There are multiple models in which the discovery mechanism defined in
+   this document can be used.  These include:
+
+   *  Upgrading regular (non-proxied) HTTP to Oblivious HTTP.  In this
+      model, the client intends to communicate with a specific target
+      service and prefers to use Oblivious HTTP if it is available.  The
+      target service has a gateway that it offers to allow access using
+      Oblivious HTTP.  Once the client learns about the gateway, it
+      "upgrades" its requests from non-proxied HTTP to Oblivious HTTP to
+      access the target service.
+
+   *  Discovering alternative Oblivious HTTP services.  In this model,
+      the client has a default target service that it uses.  For
+      example, this may be a public DNS resolver that is accessible over
+      Oblivious HTTP.  The client is willing to use alternative target
+      services if they are discovered, which may provide more optimized
+      or more relevant responses.
+
+   In both of these deployment models, the client is configured with a
+   relay that it trusts for Oblivious HTTP transactions.  This relay
+   needs to provide either (1) generic access to gateways or (2) a
+   service to clients to allow them to check which gateways are
+   accessible.
+
+4.  The "ohttp" SvcParamKey
+
+   The "ohttp" SvcParamKey is used to indicate that a service described
+   in a SVCB RR can be accessed as a target using an associated gateway.
+   The service that is queried by the client hosts one or more Target
+   Resources.
+
+   In order to access the service's Target Resources using Oblivious
+   HTTP, the client needs to send encapsulated messages to the Gateway
+   Resource and the gateway's key configuration (both of which can be
+   retrieved using the method described in Section 6).
+
+   Both the presentation and wire-format values for the "ohttp"
+   parameter MUST be empty.
+
+   Services can include the "ohttp" parameter in the mandatory parameter
+   list if the service is only accessible using Oblivious HTTP.  Marking
+   the "ohttp" parameter as mandatory will cause clients that do not
+   understand the parameter to ignore that SVCB RR.  Including the
+   "ohttp" parameter without marking it mandatory advertises a service
+   that is optionally available using Oblivious HTTP.  Note also that
+   multiple SVCB RRs can be provided to indicate separate
+   configurations.
+
+   The media type to use for encapsulated requests made to a target
+   service depends on the scheme of the SVCB RR.  This document defines
+   the interpretation for the "https" scheme [SVCB] and the "dns" scheme
+   [DNS-SVCB].  Other schemes that want to use this parameter MUST
+   define the interpretation and meaning of the configuration.
+
+4.1.  Use in HTTPS Service RRs
+
+   For the "https" scheme, which uses the HTTPS RR type instead of SVCB,
+   the presence of the "ohttp" parameter means that the target being
+   described is an Oblivious HTTP service that is accessible using the
+   default "message/bhttp" media type [OHTTP] [BINARY-HTTP].
+
+   For example, an HTTPS service RR for svc.example.com that supports
+   Oblivious HTTP could look like this:
+
+   svc.example.com. 7200  IN HTTPS 1 . ( alpn=h2 ohttp )
+
+   A similar RR for a service that only supports Oblivious HTTP could
+   look like this:
+
+   svc.example.com. 7200  IN HTTPS 1 . ( mandatory=ohttp ohttp )
+
+4.2.  Use in DNS Server SVCB RRs
+
+   For the "dns" scheme, as defined in [DNS-SVCB], the presence of the
+   "ohttp" parameter means that the DNS server being described has a
+   DNS-over-HTTPS (DoH) service [DOH] that can be accessed using
+   Oblivious HTTP.  Requests to the resolver are sent to the gateway
+   using binary HTTP with the default "message/bhttp" media type
+   [BINARY-HTTP], containing inner requests that use the "application/
+   dns-message" media type [DOH].
+
+   If the "ohttp" parameter is included in a DNS server SVCB RR, the
+   "alpn" parameter MUST include at least one HTTP value (such as "h2"
+   or "h3").
+
+   In order for DoH-capable recursive resolvers to function as Oblivious
+   HTTP targets, their associated gateways need to be accessible via a
+   client-trusted relay.  DoH recursive resolvers used with the
+   discovery mechanisms described in this section can be either publicly
+   accessible or specific to a network.  In general, only publicly
+   accessible DoH recursive resolvers will work as Oblivious HTTP
+   targets, unless there is a coordinated deployment with a relay to
+   access the network-specific DoH recursive resolvers.
+
+4.2.1.  Use with DDR
+
+   Clients can discover that a DoH recursive resolver supports Oblivious
+   HTTP using DDR, by either querying _dns.resolver.arpa to a locally
+   configured resolver or querying using the name of a resolver [DDR].
+
+   For example, a DoH service advertised over DDR can be annotated as
+   supporting resolution via Oblivious HTTP using the following RR:
+
+   _dns.resolver.arpa  7200  IN SVCB 1 doh.example.net (
+        alpn=h2 dohpath=/dns-query{?dns} ohttp )
+
+   Clients still need to perform verification of oblivious DoH servers
+   -- specifically, the TLS certificate checks described in Section 4.2
+   of [DDR].  Since the Gateway and Target Resources for discovered
+   oblivious services need to be on the same host, this means that the
+   client needs to verify that the certificate presented by the gateway
+   passes the required checks.  These checks can be performed when
+   looking up the configuration on the gateway as described in Section 6
+   and can be done either directly or via the relay or another proxy to
+   avoid exposing client IP addresses.
+
+   Opportunistic Discovery [DDR], where only the IP address is
+   validated, SHOULD NOT be used in general with Oblivious HTTP, since
+   this mode primarily exists to support resolvers that use private or
+   local IP addresses, which will usually not be accessible when using a
+   relay.  If a configuration occurs where the resolver is accessible
+   but cannot use certificate-based validation, the client MUST ensure
+   that the relay only accesses the gateway and target using the
+   unencrypted resolver's original IP address.
+
+   For the case of DoH recursive resolvers, clients also need to ensure
+   that they are not being targeted with unique DoH paths that would
+   reveal their identity.  See Section 7 for more discussion.
+
+4.2.2.  Use with DNR
+
+   The SvcParamKey defined in this document also can be used with
+   Discovery of Network-designated Resolvers [DNR].  In this case, the
+   oblivious configuration and path parameters can be included in DHCP
+   and Router Advertisement messages.
+
+   While DNR does not require the same kind of verification as DDR,
+   clients that learn about DoH recursive resolvers still need to ensure
+   that they are not being targeted with unique DoH paths that would
+   reveal their identity.  See Section 7 for more discussion.
+
+5.  Gateway Location
+
+   Once a client has discovered that a service supports Oblivious HTTP
+   via the "ohttp" parameter in a SVCB or HTTPS RR, it needs to be able
+   to send requests via a relay to the correct gateway location.
+
+   This document defines a well-known resource [WELLKNOWN], "/.well-
+   known/ohttp-gateway", which is an Oblivious Gateway Resource
+   available on the same host as the Target Resource.
+
+   Some servers might not want to operate the gateway on a well-known
+   URI.  In such cases, these servers can use 3xx (Redirection)
+   responses (Section 15.4 of [HTTP]) to direct clients and relays to
+   the correct location of the gateway.  Such redirects would apply to
+   both (1) requests made to fetch key configurations (as defined in
+   Section 6) and (2) encapsulated requests made via a relay.
+
+   If a client receives a redirect when fetching the key configuration
+   from the well-known Gateway Resource, it MUST NOT communicate the
+   redirected gateway URI to the relay as the location of the gateway to
+   use.  Doing so would allow the gateway to target clients by encoding
+   unique or client-identifying values in the redirected URI.  Instead,
+   relays being used with dynamically discovered gateways MUST use the
+   well-known Gateway Resource and follow any redirects independently of
+   redirects that clients received.  The relay can remember such
+   redirects across oblivious requests for all clients in order to avoid
+   added latency.
+
+6.  Key Configuration Fetching
+
+   Clients also need to know the key configuration of a gateway before
+   encapsulating and sending requests to the relay.
+
+   If a client fetches the key configuration directly from the gateway,
+   it will expose identifiers like a client IP address to the gateway.
+   The privacy and security implications of fetching the key
+   configuration are discussed more in Section 7.  Clients can use an
+   HTTP proxy to hide their IP addresses when fetching key
+   configurations.  Clients can also perform consistency checks to
+   validate that they are not receiving unique key configurations, as
+   discussed in Section 7.1.
+
+   In order to fetch the key configuration of a gateway discovered in
+   the manner described in Section 5, the client issues a GET request
+   (either through a proxy or directly) to the URI of the gateway
+   specifying the "application/ohttp-keys" media type [OHTTP] in the
+   Accept header.
+
+   For example, if the client knows an Oblivious Gateway URI,
+   https://svc.example.com/.well-known/ohttp-gateway, it could fetch the
+   key configuration with the following request:
+
+   GET /.well-known/ohttp-gateway HTTP/1.1
+   Host: svc.example.com
+   Accept: application/ohttp-keys
+
+   Gateways that coordinate with targets that advertise Oblivious HTTP
+   support SHOULD support GET requests for their key configuration in
+   this manner, unless there is another out-of-band configuration model
+   that is usable by clients.  Gateways respond with their key
+   configuration in the response body, with a content type of
+   "application/ohttp-keys".
+
+7.  Security and Privacy Considerations
+
+   Attackers on a network can remove SVCB information from cleartext DNS
+   answers that are not protected by DNSSEC [DNSSEC].  This can
+   effectively downgrade clients.  However, since SVCB indications for
+   Oblivious HTTP support are just hints, a client can mitigate this by
+   always checking for a gateway configuration (Section 6) on the well-
+   known gateway location (Section 5).  Using encrypted DNS along with
+   DNSSEC can also provide such a mitigation.
+
+   When clients fetch a gateway's configuration (Section 6), they can
+   expose their identity in the form of an IP address if they do not
+   connect via a proxy or some other IP-hiding mechanism.  In some
+   circumstances, this might not be a privacy concern, since revealing
+   that a particular client IP address is preparing to use an Oblivious
+   HTTP service can be expected.  However, if a client is otherwise
+   trying to hide its IP address or location (and not merely decouple
+   its specific requests from its IP address), or if revealing its IP
+   address facilitates key targeting attacks (if a gateway service uses
+   IP addresses to associate specific configurations with specific
+   clients), a proxy or similar mechanism can be used to fetch the
+   gateway's configuration.
+
+   When discovering designated oblivious DoH recursive resolvers using
+   this mechanism, clients need to ensure that the designation is
+   trusted in lieu of being able to directly check the contents of the
+   gateway server's TLS certificate.  See Section 4.2.1 for more
+   discussion, as well as Section 8 ("Security Considerations") of
+   [DNS-SVCB].
+
+7.1.  Key Targeting Attacks
+
+   As discussed in [OHTTP], client requests using Oblivious HTTP can
+   only be linked by recognizing the key configuration.  In order to
+   prevent unwanted linkability and tracking, clients using any key
+   configuration discovery mechanism need to be concerned with attacks
+   that target a specific user or population with a unique key
+   configuration.
+
+   There are several approaches clients can use to mitigate key
+   targeting attacks.  [CONSISTENCY] provides an overview of the options
+   for ensuring that the key configurations are consistent between
+   different clients.  Clients SHOULD employ some technique to mitigate
+   key targeting attacks, such as the option of confirming the key with
+   a shared proxy as described in [CONSISTENCY].  If a client detects
+   that a gateway is using per-client targeted key configuration, the
+   client can stop using the gateway and, potentially, report the
+   targeting attack so that other clients can avoid using this gateway
+   in the future.
+
+7.2.  dohpath Targeting Attacks
+
+   For oblivious DoH servers, an attacker could use unique "dohpath"
+   values to target or identify specific clients.  This attack is very
+   similar to the generic OHTTP key targeting attack described above.
+
+   A client can avoid these targeting attacks by only allowing a single
+   "dohpath" value, such as the commonly used "/dns-query{?dns}" or
+   another pre-known value.  If the client allows arbitrary "dohpath"
+   values, it SHOULD mitigate targeting attacks with a consistency
+   check, such as using one of the mechanisms described in [CONSISTENCY]
+   to validate the "dohpath" value with another source.  Clients might
+   choose to only employ a consistency check on a percentage of
+   discovery events, depending on the capacity of consistency check
+   options and their deployment threat model.
+
+8.  IANA Considerations
+
+8.1.  SVCB Service Parameter
+
+   This document adds the following entry to the "Service Parameter Keys
+   (SvcParamKeys)" registry [SVCB].  This parameter is defined in
+   Section 4.
+
+    +========+=======+=======================+============+===========+
+    | Number | Name  | Meaning               | Change     | Reference |
+    |        |       |                       | Controller |           |
+    +========+=======+=======================+============+===========+
+    | 8      | ohttp | Denotes that a        | IETF       | RFC 9540, |
+    |        |       | service operates an   |            | Section 4 |
+    |        |       | Oblivious HTTP target |            |           |
+    +--------+-------+-----------------------+------------+-----------+
+
+                                  Table 1
+
+8.2.  Well-Known URI
+
+   IANA has added one entry in the "Well-Known URIs" registry
+   [WELLKNOWN].
+
+   URI Suffix:  ohttp-gateway
+
+   Change Controller:  IETF
+
+   Reference:  RFC 9540
+
+   Status:  permanent
+
+   Related Information:  N/A
+
+9.  References
+
+9.1.  Normative References
+
+   [BINARY-HTTP]
+              Thomson, M. and C. A. Wood, "Binary Representation of HTTP
+              Messages", RFC 9292, DOI 10.17487/RFC9292, August 2022,
+              <https://www.rfc-editor.org/info/rfc9292>.
+
+   [DDR]      Pauly, T., Kinnear, E., Wood, C. A., McManus, P., and T.
+              Jensen, "Discovery of Designated Resolvers", RFC 9462,
+              DOI 10.17487/RFC9462, November 2023,
+              <https://www.rfc-editor.org/info/rfc9462>.
+
+   [DNR]      Boucadair, M., Ed., Reddy.K, T., Ed., Wing, D., Cook, N.,
+              and T. Jensen, "DHCP and Router Advertisement Options for
+              the Discovery of Network-designated Resolvers (DNR)",
+              RFC 9463, DOI 10.17487/RFC9463, November 2023,
+              <https://www.rfc-editor.org/info/rfc9463>.
+
+   [DNS-SVCB] Schwartz, B., "Service Binding Mapping for DNS Servers",
+              RFC 9461, DOI 10.17487/RFC9461, November 2023,
+              <https://www.rfc-editor.org/info/rfc9461>.
+
+   [DOH]      Hoffman, P. and P. McManus, "DNS Queries over HTTPS
+              (DoH)", RFC 8484, DOI 10.17487/RFC8484, October 2018,
+              <https://www.rfc-editor.org/info/rfc8484>.
+
+   [HTTP]     Fielding, R., Ed., Nottingham, M., Ed., and J. Reschke,
+              Ed., "HTTP Semantics", STD 97, RFC 9110,
+              DOI 10.17487/RFC9110, June 2022,
+              <https://www.rfc-editor.org/info/rfc9110>.
+
+   [OHTTP]    Thomson, M. and C. A. Wood, "Oblivious HTTP", RFC 9458,
+              DOI 10.17487/RFC9458, January 2024,
+              <https://www.rfc-editor.org/info/rfc9458>.
+
+   [RFC2119]  Bradner, S., "Key words for use in RFCs to Indicate
+              Requirement Levels", BCP 14, RFC 2119,
+              DOI 10.17487/RFC2119, March 1997,
+              <https://www.rfc-editor.org/info/rfc2119>.
+
+   [RFC8174]  Leiba, B., "Ambiguity of Uppercase vs Lowercase in RFC
+              2119 Key Words", BCP 14, RFC 8174, DOI 10.17487/RFC8174,
+              May 2017, <https://www.rfc-editor.org/info/rfc8174>.
+
+   [SVCB]     Schwartz, B., Bishop, M., and E. Nygren, "Service Binding
+              and Parameter Specification via the DNS (SVCB and HTTPS
+              Resource Records)", RFC 9460, DOI 10.17487/RFC9460,
+              November 2023, <https://www.rfc-editor.org/info/rfc9460>.
+
+   [WELLKNOWN]
+              Nottingham, M., "Well-Known Uniform Resource Identifiers
+              (URIs)", RFC 8615, DOI 10.17487/RFC8615, May 2019,
+              <https://www.rfc-editor.org/info/rfc8615>.
+
+9.2.  Informative References
+
+   [CONSISTENCY]
+              Davidson, A., Finkel, M., Thomson, M., and C. A. Wood,
+              "Key Consistency and Discovery", Work in Progress,
+              Internet-Draft, draft-ietf-privacypass-key-consistency-01,
+              10 July 2023, <https://datatracker.ietf.org/doc/html/
+              draft-ietf-privacypass-key-consistency-01>.
+
+   [DNSSEC]   Arends, R., Austein, R., Larson, M., Massey, D., and S.
+              Rose, "DNS Security Introduction and Requirements",
+              RFC 4033, DOI 10.17487/RFC4033, March 2005,
+              <https://www.rfc-editor.org/info/rfc4033>.
+
+Authors' Addresses
+
+   Tommy Pauly
+   Apple Inc.
+   Email: tpauly@apple.com
+
+
+   Tirumaleswar Reddy.K
+   Nokia
+   Email: kondtir@gmail.com

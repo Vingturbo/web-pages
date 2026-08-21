@@ -1,0 +1,465 @@
+﻿
+
+
+
+Internet Engineering Task Force (IETF)                   H. Bidgoli, Ed.
+Request for Comments: 9739                                         Nokia
+Category: Standards Track                                      S. Venaas
+ISSN: 2070-1721                                                M. Mishra
+                                                     Cisco Systems, Inc.
+                                                                Z. Zhang
+                                                        Juniper Networks
+                                                              M. McBride
+                                             Futurewei Technologies Inc.
+                                                              March 2025
+
+
+            Protocol Independent Multicast Light (PIM Light)
+
+Abstract
+
+   This document specifies Protocol Independent Multicast Light (PIM
+   Light) and the PIM Light Interface (PLI).  A PLI does not need a PIM
+   Hello message to accept PIM Join/Prune messages, and it can signal
+   multicast states over networks that cannot support full PIM neighbor
+   discovery, such as Bit Index Explicit Replication (BIER) networks
+   that connect two or more PIM domains.  This document outlines the PIM
+   Light protocol and procedures to ensure loop-free multicast traffic
+   between two or more PIM Light routers.
+
+Status of This Memo
+
+   This is an Internet Standards Track document.
+
+   This document is a product of the Internet Engineering Task Force
+   (IETF).  It represents the consensus of the IETF community.  It has
+   received public review and has been approved for publication by the
+   Internet Engineering Steering Group (IESG).  Further information on
+   Internet Standards is available in Section 2 of RFC 7841.
+
+   Information about the current status of this document, any errata,
+   and how to provide feedback on it may be obtained at
+   https://www.rfc-editor.org/info/rfc9739.
+
+Copyright Notice
+
+   Copyright (c) 2025 IETF Trust and the persons identified as the
+   document authors.  All rights reserved.
+
+   This document is subject to BCP 78 and the IETF Trust's Legal
+   Provisions Relating to IETF Documents
+   (https://trustee.ietf.org/license-info) in effect on the date of
+   publication of this document.  Please review these documents
+   carefully, as they describe your rights and restrictions with respect
+   to this document.  Code Components extracted from this document must
+   include Revised BSD License text as described in Section 4.e of the
+   Trust Legal Provisions and are provided without warranty as described
+   in the Revised BSD License.
+
+Table of Contents
+
+   1.  Introduction
+   2.  Terminology
+   3.  PIM Light Interface
+     3.1.  Message Types Supported by PIM Light
+     3.2.  Considerations for the Absence of Hello Message
+       3.2.1.  Join Attribute
+       3.2.2.  DR Election
+       3.2.3.  PIM Assert
+     3.3.  PLI Configuration
+     3.4.  Failures in PLR Domain
+     3.5.  Reliable Transport Mechanism for PIM Light
+     3.6.  PIM Variants Not Supported
+   4.  IANA Considerations
+   5.  Security Considerations
+   6.  References
+     6.1.  Normative References
+     6.2.  Informative References
+   Acknowledgments
+   Authors' Addresses
+
+1.  Introduction
+
+   This document specifies procedures for Protocol Independent Multicast
+   Light (PIM Light) and the PIM Light Interface (PLI).  The PLI is a
+   new type of PIM interface that allows signaling of PIM Join/Prune
+   packets without full PIM neighbor discovery.  A PLI is useful in
+   scenarios where multicast states need to be signaled over networks or
+   media that cannot support full PIM neighborship between routers or,
+   alternatively, where full PIM neighborship is not desired.  These
+   types of networks and media are called "PIM Light domains" within
+   this document.  Lack of full PIM neighborship will remove some PIM
+   functionality as explained in Section 3.2 of this document.  PIM
+   Light only supports the PIM - Sparse Mode (PIM-SM) protocol,
+   including PIM Source-Specific Multicast (PIM-SSM), as per [RFC7761].
+   This document details procedures and considerations needed for PIM
+   Light and the PLI to ensure efficient routing of multicast groups for
+   specific deployment environments.
+
+2.  Terminology
+
+   The key words "MUST", "MUST NOT", "REQUIRED", "SHALL", "SHALL NOT",
+   "SHOULD", "SHOULD NOT", "RECOMMENDED", "NOT RECOMMENDED", "MAY", and
+   "OPTIONAL" in this document are to be interpreted as described in
+   BCP 14 [RFC2119] [RFC8174] when, and only when, they appear in all
+   capitals, as shown here.
+
+   This document uses terminology from "Protocol Independent Multicast -
+   Sparse Mode (PIM-SM): Protocol Specification (Revised)" [RFC7761].
+
+3.  PIM Light Interface
+
+   Section 4.3.1 of [RFC7761] describes PIM neighbor discovery via Hello
+   messages.  Section 4.5 of [RFC7761] notes that if a router receives a
+   Join/Prune message from a particular IP source address and it has not
+   seen a PIM Hello message from that source address, then the Join/
+   Prune message SHOULD be discarded without further processing.
+
+   In certain scenarios, it is desirable to establish multicast states
+   between two routers without forming a PIM neighborship.  This can be
+   necessary for various reasons, such as signaling multicast states
+   upstream between multiple PIM domains over a network that is not
+   optimized for PIM or that does not necessitate PIM neighbor
+   establishment.  An example is a Bit Index Explicit Replication (BIER)
+   [RFC8279] network connecting multiple PIM domains, where PIM Join/
+   Prune messages are tunneled via BIER as specified in [BIER-PIM].
+
+   A PLI accepts Join/Prune messages from an unknown PIM router without
+   requiring a PIM Hello message from the router.  The absence of Hello
+   messages on a PLI means there is no mechanism to discover neighboring
+   PIM routers or their capabilities or to execute basic algorithms such
+   as Designated Router (DR) election [RFC7761].  Consequently, the PIM
+   Light router does not create any general-purpose state for
+   neighboring PIM routers and only processes Join/Prune messages from
+   downstream routers in its multicast routing table.  Processing these
+   Join/Prune messages will introduce multicast states in a PIM Light
+   router.
+
+   Due to these constraints, a PLI should be deployed in very specific
+   scenarios where PIM-SM is not suitable.  The applications or the
+   networks on which PLIs are deployed MUST ensure that there is no
+   multicast packet duplication, such as multiple upstream routers
+   sending the same multicast stream to a single downstream router.  For
+   example, an implementation should ensure that DR election is done on
+   upstream redundant PIM routers that are at the edge of the PIM Light
+   domain to ensure that a single DR forwards the PIM Join message from
+   the receiver to the source.
+
+3.1.  Message Types Supported by PIM Light
+
+   The "PIM Message Types" registry [IANA-PIM-Mess-Types] lists the
+   message types supported by PIM.  PIM Light only supports the
+   following message types in that registry:
+
+   *  type 1 (Register)
+
+   *  type 2 (Register Stop)
+
+   *  type 3 (Join/Prune)
+
+   *  type 8 (Candidate RP Advertisement)
+
+   *  type 13.0 (PIM Packed Null-Register)
+
+   *  type 13.1 (PIM Packed Register-Stop)
+
+   *  Any future PIM message types where the destination is a unicast IP
+      address
+
+   No other message types are supported by PIM Light; other message
+   types MUST NOT be processed if received on a PLI.
+
+3.2.  Considerations for the Absence of Hello Message
+
+   Because Hello messages are not processed in a PIM Light domain, the
+   considerations in the subsections below should be taken into account.
+
+3.2.1.  Join Attribute
+
+   Since a PLI does not use PIM Hello messages, it also does not support
+   the Join Attribute option in PIM Hello as specified in [RFC5384].  As
+   such, PIM Light is unaware of its neighbor's capability to process
+   Join Attributes and SHOULD NOT send a Join message containing a Join
+   Attribute.
+
+   There are two cases in which a PLI can support a Join Attribute:
+
+   *  The neighbors on the PLI are known via configuration to be capable
+      of processing the attribute.
+
+   *  Internet-Drafts and RFCs may dictate that certain Join Attributes
+      are allowed to be used without explicit configuration of the PLI
+      in certain scenarios.  The details are left to those Internet-
+      Drafts and RFCs.
+
+3.2.2.  DR Election
+
+   Due to the absence of Hello messages, DR election is not supported on
+   a PIM Light router.  The network design must ensure DR election
+   occurs within the PIM domain, assuming the PIM Light domain
+   interconnects PIM domains.
+
+   For instance, in a BIER domain connecting two PIM domains as in the
+   figure below, a PLI can be used between BIER edge routers solely for
+   multicast state communication and transmit only PIM Join/Prune
+   messages.  If there are redundant PIM routers at the edge of the BIER
+   domain, they MUST establish PIM adjacency as per [RFC7761] to prevent
+   multicast stream duplication and to ensure DR election at the edge of
+   the BIER domain.  For example, DR election could be between router D
+   and F in the figure below.  When the Join or Prune message arrives
+   from a PIM domain to the downstream BIER edge router, it can be
+   forwarded over the BIER tunnel to the upstream BIER edge router only
+   via the DR.
+
+                    Bier edge router       Bier edge router
+           |--PIM domain--|--BIER domain (PLI)--|--PIM domain--|
+ Source--( A )----------( B ) ---- ( C ) ---- ( D )----------( E )--Host
+           |       PIM Adj|         | |         |PIM Adj       |
+           |------------( E )-------| |-------( F )------------|
+                                          (DR election)
+
+3.2.3.  PIM Assert
+
+   In scenarios where multiple PIM routers peer over a shared LAN or a
+   point-to-multipoint medium, more than one upstream router may have
+   valid forwarding state for a packet, which can potentially cause
+   packet duplication.  PIM Assert is used to select a single
+   transmitter when such duplication is detected.  According to
+   Section 4.6 of [RFC7761], PIM Assert should only be accepted from a
+   known PIM neighbor.
+
+   In PIM Light implementations, care must be taken to avoid duplicate
+   streams arriving from multiple upstream PIM Light routers to a single
+   downstream PIM Light router.  If network design constraints prevent
+   this, the implemented network architecture must take measures to
+   avoid traffic duplication.  For example, in a scenario with PIM Light
+   over a BIER domain, a downstream IBBR (Ingress BIER Border Router) in
+   a BIER domain can identify the nearest EBBRs (Egress BIER Border
+   Routers) to the source using the Shortest Path First (SPF) algorithm
+   with post-processing as described in Appendix A.1 of [BIER-PIM].  If
+   the downstream IBBR identifies two EBBRs, it can select one using a
+   unique IP selection algorithm, such as choosing the EBBR with the
+   lowest or highest IP address.  If the selected EBBR goes offline, the
+   downstream router can use the next EBBR based on the IP selection
+   algorithm, which is beyond the scope of this document.
+
+3.3.  PLI Configuration
+
+   Since a PLI doesn't require PIM Hello Messages and PIM neighbor
+   adjacency is not checked for arriving Join/Prune messages, there
+   needs to be a mechanism to enable PLIs on interfaces.  Join/Prune
+   messages not received from a PIM neighbor MUST be dropped unless PLI
+   is enabled on the interface.  In some cases, a PLI may be enabled
+   automatically via an underlying mechanism on a logical interface.
+   For example, in a BIER domain, a logical interface can connect two or
+   more BIER edge routers as per [BIER-PIM].
+
+3.4.  Failures in PLR Domain
+
+   Because Hello messages are not processed on the PLI, PLI failures may
+   not be discovered in a PIM Light domain, and multicast routes will
+   not be pruned toward the source on the PIM Light domain.  This
+   results in the upstream routers continuously sending multicast
+   streams until the outgoing interface (OIF) expires.
+
+   Other protocols can be used to detect these failures in the PIM Light
+   domain, and they can be implementation specific.  As an example, the
+   interface on which PIM Light is configured can be protected via
+   Bidirectional Forwarding Detection (BFD) or similar technology.  If
+   BFD to the far-end PLI goes down and the PIM Light router is upstream
+   and has an OIF for a multicast route (S,G), PIM must remove that PLI
+   from its OIF list.
+
+   In another example, the PLI is configured automatically between the
+   BIER Edge Routers (BERs) as in the figure below.  When the Downstream
+   BIER Edge Router (DBER) is no longer reachable on the Upstream BIER
+   Edge Router (UBER), the UBER (which is also a PIM Light router) can
+   prune the (S,G) advertised toward the source on the PIM domain to
+   stop the transmission of the multicast stream.
+
+                         UBER                 DBER
+           |--PIM domain--|--BIER domain (PLI)--|--PIM domain--|
+ Source--( A )----------( B ) ---- ( C ) ---- ( D )----------( E )--Host
+                  <--Prune (S,G)          <failure on D>
+
+3.5.  Reliable Transport Mechanism for PIM Light
+
+   [RFC6559] defines a reliable transport mechanism called PIM Over
+   Reliable Transport (PORT) for PIM transmission of Join/Prune
+   messages, using either TCP or SCTP as the transport protocol.  Both
+   TCP and SCTP use destination port number 8471.  SCTP is explained in
+   [RFC9260] and is used as a second option for PORT.  [RFC6559]
+   mentions that when a router is configured to use PIM over TCP on a
+   given interface, it MUST include the PIM-over-TCP-Capable Hello
+   Option in its Hello messages for that interface.  The same is true
+   for SCTP; the router MUST include the PIM-over-SCTP-Capable Hello
+   Option in its Hello messages on that interface.
+
+   These Hello options contain a Connection ID, which is an IPv4 or IPv6
+   address used to establish the SCTP or TCP connection.  For PORT using
+   TCP, the Connection ID is used to determine which peer is doing an
+   active transport open to the neighbor and which peer is doing passive
+   transport open, as per Section 4 of [RFC6559].  When the router is
+   using SCTP, the Connection ID is not used to determine the active and
+   passive peer since SCTP can handle call collision.
+
+   Because PIM Light lacks Hello messages, the PLI can be configured
+   with the Connection ID (i.e., the IPv4 or IPv6 address used to
+   establish the SCTP or TCP connection).  For PIM Light using the TCP
+   PORT option, each end of the PLI must be explicitly and correctly
+   configured as being either active transport open or passive transport
+   open to ensure that call collision is avoided.
+
+3.6.  PIM Variants Not Supported
+
+   The following PIM variants are not supported with PIM Light and not
+   covered by this document:
+
+   *  PIM - Dense Mode (PIM-DM) [RFC3973]
+
+   *  Bidirectional PIM (BIDIR-PIM) [RFC5015]
+
+4.  IANA Considerations
+
+   This document has no IANA actions.
+
+5.  Security Considerations
+
+   Since PIM Light does not require PIM Hello messages and does not
+   verify PIM neighbor adjacency for incoming Join/Prune messages, for
+   security reasons, it is crucial that implementations ensure that only
+   Join/Prune messages arriving at a configured PLI are processed.  Any
+   Join/Prune messages received on an interface that is not configured
+   as a PLI MUST be discarded and not processed.  Additionally, as a
+   secondary line of defense, route policies SHOULD be implemented to
+   process only the Join/Prune messages associated with the desired
+   (S,G) pairs, while all other (S,G) pairs MUST be discarded and not
+   processed.
+
+   Furthermore, because PIM Light can be used for signaling PIM-SM Join/
+   Prune messages, the security considerations outlined in [RFC7761] and
+   [RFC4607] SHOULD be considered where appropriate.
+
+   Per Section 6.1.1 of [RFC7761], only forged Join/Prune messages
+   should be considered as a potential attack vector, as PIM Light does
+   not process Hello or Assert messages.  In addition, as detailed in
+   Section 6.3 of [RFC7761], the authentication mechanisms described in
+   [RFC5796] can be applied to PIM Light via IPsec Encapsulating
+   Security Payload (ESP) or, optionally, the Authentication Header
+   (AH).
+
+6.  References
+
+6.1.  Normative References
+
+   [IANA-PIM-Mess-Types]
+              IANA, "PIM Message Types",
+              <https://www.iana.org/assignments/pim-parameters>.
+
+   [RFC2119]  Bradner, S., "Key words for use in RFCs to Indicate
+              Requirement Levels", BCP 14, RFC 2119,
+              DOI 10.17487/RFC2119, March 1997,
+              <https://www.rfc-editor.org/info/rfc2119>.
+
+   [RFC4607]  Holbrook, H. and B. Cain, "Source-Specific Multicast for
+              IP", RFC 4607, DOI 10.17487/RFC4607, August 2006,
+              <https://www.rfc-editor.org/info/rfc4607>.
+
+   [RFC5015]  Handley, M., Kouvelas, I., Speakman, T., and L. Vicisano,
+              "Bidirectional Protocol Independent Multicast (BIDIR-
+              PIM)", RFC 5015, DOI 10.17487/RFC5015, October 2007,
+              <https://www.rfc-editor.org/info/rfc5015>.
+
+   [RFC5384]  Boers, A., Wijnands, I., and E. Rosen, "The Protocol
+              Independent Multicast (PIM) Join Attribute Format",
+              RFC 5384, DOI 10.17487/RFC5384, November 2008,
+              <https://www.rfc-editor.org/info/rfc5384>.
+
+   [RFC5796]  Atwood, W., Islam, S., and M. Siami, "Authentication and
+              Confidentiality in Protocol Independent Multicast Sparse
+              Mode (PIM-SM) Link-Local Messages", RFC 5796,
+              DOI 10.17487/RFC5796, March 2010,
+              <https://www.rfc-editor.org/info/rfc5796>.
+
+   [RFC6559]  Farinacci, D., Wijnands, IJ., Venaas, S., and M.
+              Napierala, "A Reliable Transport Mechanism for PIM",
+              RFC 6559, DOI 10.17487/RFC6559, March 2012,
+              <https://www.rfc-editor.org/info/rfc6559>.
+
+   [RFC7761]  Fenner, B., Handley, M., Holbrook, H., Kouvelas, I.,
+              Parekh, R., Zhang, Z., and L. Zheng, "Protocol Independent
+              Multicast - Sparse Mode (PIM-SM): Protocol Specification
+              (Revised)", STD 83, RFC 7761, DOI 10.17487/RFC7761, March
+              2016, <https://www.rfc-editor.org/info/rfc7761>.
+
+   [RFC8174]  Leiba, B., "Ambiguity of Uppercase vs Lowercase in RFC
+              2119 Key Words", BCP 14, RFC 8174, DOI 10.17487/RFC8174,
+              May 2017, <https://www.rfc-editor.org/info/rfc8174>.
+
+   [RFC8279]  Wijnands, IJ., Ed., Rosen, E., Ed., Dolganow, A.,
+              Przygienda, T., and S. Aldrin, "Multicast Using Bit Index
+              Explicit Replication (BIER)", RFC 8279,
+              DOI 10.17487/RFC8279, November 2017,
+              <https://www.rfc-editor.org/info/rfc8279>.
+
+   [RFC9260]  Stewart, R., Tüxen, M., and K. Nielsen, "Stream Control
+              Transmission Protocol", RFC 9260, DOI 10.17487/RFC9260,
+              June 2022, <https://www.rfc-editor.org/info/rfc9260>.
+
+6.2.  Informative References
+
+   [BIER-PIM] Bidgoli, H., Ed., Xu, F., Kotalwar, J., Wijnands, I.,
+              Mishra, M., and Z. Zhang, "PIM Signaling Through BIER
+              Core", Work in Progress, Internet-Draft, draft-ietf-bier-
+              pim-signaling-13, 3 March 2025,
+              <https://datatracker.ietf.org/doc/html/draft-ietf-bier-
+              pim-signaling-13>.
+
+   [RFC3973]  Adams, A., Nicholas, J., and W. Siadak, "Protocol
+              Independent Multicast - Dense Mode (PIM-DM): Protocol
+              Specification (Revised)", RFC 3973, DOI 10.17487/RFC3973,
+              January 2005, <https://www.rfc-editor.org/info/rfc3973>.
+
+Acknowledgments
+
+   The authors would like to thank Zheng (Sandy) Zhang and Tanmoy Kundu
+   for their suggestions and contributions to this document.
+
+Authors' Addresses
+
+   Hooman Bidgoli (editor)
+   Nokia
+   March Road
+   Ottawa Ontario K2K 2T6
+   Canada
+   Email: hooman.bidgoli@nokia.com
+
+
+   Stig Venaas
+   Cisco Systems, Inc.
+   Tasman Drive
+   San Jose, CA 95134
+   United States of America
+   Email: stig@cisco.com
+
+
+   Mankamana Mishra
+   Cisco Systems, Inc.
+   Tasman Drive
+   San Jose, CA 95134
+   United States of America
+   Email: mankamis@cisco.com
+
+
+   Zhaohui Zhang
+   Juniper Networks
+   Boston, MA
+   United States of America
+   Email: zzhang@juniper.net
+
+
+   Mike McBride
+   Futurewei Technologies Inc.
+   Santa Clara, CA
+   United States of America
+   Email: michael.mcbride@futurewei.com

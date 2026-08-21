@@ -1,0 +1,622 @@
+﻿
+
+
+
+Internet Engineering Task Force (IETF)                     K. Talaulikar
+Request for Comments: 9819                                       K. Raza
+Updates: 9252                                              Cisco Systems
+Category: Standards Track                                     J. Rabadan
+ISSN: 2070-1721                                                    Nokia
+                                                                  W. Lin
+                                                        Juniper Networks
+                                                               July 2025
+
+
+Argument Signaling for BGP Services in Segment Routing over IPv6 (SRv6)
+
+Abstract
+
+   RFC 9252 defines procedures and messages for BGP overlay services for
+   Segment Routing over IPv6 (SRv6), including Layer 3 Virtual Private
+   Network (L3VPN), Ethernet VPN (EVPN), and global Internet routing.
+   This document updates RFC 9252 and provides more detailed
+   specifications for the signaling and processing of SRv6 Segment
+   Identifier advertisements for BGP overlay service routes associated
+   with SRv6 Endpoint Behaviors that support arguments.
+
+Status of This Memo
+
+   This is an Internet Standards Track document.
+
+   This document is a product of the Internet Engineering Task Force
+   (IETF).  It represents the consensus of the IETF community.  It has
+   received public review and has been approved for publication by the
+   Internet Engineering Steering Group (IESG).  Further information on
+   Internet Standards is available in Section 2 of RFC 7841.
+
+   Information about the current status of this document, any errata,
+   and how to provide feedback on it may be obtained at
+   https://www.rfc-editor.org/info/rfc9819.
+
+Copyright Notice
+
+   Copyright (c) 2025 IETF Trust and the persons identified as the
+   document authors.  All rights reserved.
+
+   This document is subject to BCP 78 and the IETF Trust's Legal
+   Provisions Relating to IETF Documents
+   (https://trustee.ietf.org/license-info) in effect on the date of
+   publication of this document.  Please review these documents
+   carefully, as they describe your rights and restrictions with respect
+   to this document.  Code Components extracted from this document must
+   include Revised BSD License text as described in Section 4.e of the
+   Trust Legal Provisions and are provided without warranty as described
+   in the Revised BSD License.
+
+Table of Contents
+
+   1.  Introduction
+     1.1.  Requirements Language
+   2.  Advertisement of SRv6 SID and Arguments
+   3.  End.DT2M Signaling for EVPN ESI Filtering
+     3.1.  Advertisement of Ethernet A-D per ES Route
+     3.2.  Advertisement of Inclusive Multicast Ethernet Tag Route
+     3.3.  Processing at Ingress PE
+   4.  Backward Compatibility
+   5.  IANA Considerations
+   6.  Security Considerations
+   7.  References
+     7.1.  Normative References
+     7.2.  Informative References
+   Acknowledgments
+   Authors' Addresses
+
+1.  Introduction
+
+   SRv6 refers to Segment Routing instantiated over the IPv6 data plane
+   [RFC8402].  An SRv6 Segment Identifier (SID) [RFC8402] can be
+   associated with one of the service-specific SRv6 Endpoint Behaviors
+   on the advertising Provider Edge (PE) router for Layer 3 Virtual
+   Private Network (L3VPN), global Internet routing, and Ethernet VPN
+   (EVPN) services as defined in [RFC8986].  Such SRv6 SIDs are referred
+   to as SRv6 Service SIDs.  [RFC9252] defines the procedures and
+   messages for the signaling of BGP overlay services including L3VPN,
+   EVPN, and Internet services using SRv6.
+
+   For certain EVPN services, Section 4.12 of [RFC8986] introduced the
+   End.DT2M SRv6 Endpoint Behavior, which utilizes arguments (i.e.,
+   Arg.FE2).  [RFC9252] subsequently specified the encoding and
+   signaling procedures for the SRv6 SID and its associated argument via
+   the Inclusive Multicast Ethernet Tag route (EVPN Route Type 3) and
+   the Ethernet A-D (Auto-Discovery) per ES route (EVPN Route Type 1),
+   respectively.  However, during implementation and interoperability
+   testing, it was observed that the specifications outlined in
+   [RFC9252] lack sufficient detail, leading to ambiguities in
+   interpretation and implementation.
+
+   This document updates [RFC9252] by providing additional details and
+   clarifications regarding the signaling of SRv6 Service SIDs
+   associated with SRv6 Endpoint Behaviors that utilize arguments.
+   While the focus is primarily on the signaling of the End.DT2M SRv6
+   Endpoint Behavior via the Ethernet A-D per ES route and Inclusive
+   Multicast Ethernet Tag route, the procedures described herein are
+   also applicable to other similar SRv6 Endpoint Behaviors with
+   arguments that may be signaled using BGP.
+
+   Section 6.3 of [RFC9252] specifies that the SRv6 Service SID used in
+   the data plane is derived by applying a bitwise logical-OR operation
+   between the SID with an argument signaled via the Ethernet A-D per ES
+   route and the SID with the 'Locator + Function' components signaled
+   via the Inclusive Multicast Ethernet Tag route.  However, this
+   approach assumes a uniform SID structure across all SIDs advertised
+   via the Ethernet A-D per ES route and Inclusive Multicast Ethernet
+   Tag route.  This assumption is not universally valid, and the
+   procedures in this document remove this restriction, ensuring greater
+   flexibility in SRv6 SID signaling.
+
+   The descriptions and examples presented in this document do not
+   utilize the Transposition Scheme (see Section 4 of [RFC9252]).
+   Consequently, the Transposition Offset (TPOS-O) and Transposition
+   Length (TPOS-L) are set to zero, and references to MPLS label fields
+   where the function or argument portions may be transposed are
+   omitted.  However, the same examples could be applied with the
+   Transposition Scheme.  This document does not introduce any
+   modifications to the use of the Transposition Scheme in the signaling
+   of EVPN routes.  Implementations are expected to adhere to the
+   procedures and recommendations specified in [RFC9252] concerning the
+   Transposition Scheme.
+
+1.1.  Requirements Language
+
+   The key words "MUST", "MUST NOT", "REQUIRED", "SHALL", "SHALL NOT",
+   "SHOULD", "SHOULD NOT", "RECOMMENDED", "NOT RECOMMENDED", "MAY", and
+   "OPTIONAL" in this document are to be interpreted as described in
+   BCP 14 [RFC2119] [RFC8174] when, and only when, they appear in all
+   capitals, as shown here.
+
+2.  Advertisement of SRv6 SID and Arguments
+
+   Section 3.1 of [RFC8986] defines the format of an SRv6 SID as
+   consisting of three components: Locator (LOC), Function (FUNC), and
+   Argument (ARG).  For SRv6 SIDs associated with SRv6 Endpoint
+   Behaviors that do not support arguments, the ARG component is not
+   present.  Consequently, all bits following the FUNC portion MUST be
+   set to zero, and the Argument Length (AL) MUST be zero.
+
+   Certain SRv6 Endpoint Behaviors (e.g., End.DT2M) support arguments.
+   As specified in Section 3.2.1 of [RFC9252], the SRv6 SID Structure
+   Sub-Sub-TLV MUST be included when signaling an SRv6 SID corresponding
+   to an SRv6 Endpoint Behavior that supports argument.  This ensures
+   that the receiving router can perform consistency verification of the
+   argument and correctly encode the ARG value within the SRv6 SID.
+
+   In certain use cases, the SRv6 SID can be signaled as a complete
+   structure, with the LOC:FUNC:ARG components fully encoded within the
+   SID.  However, there are scenarios where the SRv6 SID, consisting
+   only of the LOC:FUNC portion, is signaled in one advertisement, while
+   the ARG value is either signaled through a separate advertisement or
+   learned via an alternative mechanism.  It is the responsibility of
+   the SRv6 source node to append the ARG component to the LOC:FUNC
+   portion, thereby constructing the complete SRv6 SID (LOC:FUNC:ARG).
+   This fully formed SID can then be utilized in the data plane, either
+   as the IPv6 destination address of a packet or as a segment within
+   the Segment Routing Header (SRH) [RFC8754], as required.
+
+   Since arguments may be optional, the SRv6 endpoint node that owns the
+   SID MUST advertise the SRv6 SID Structure Sub-Sub-TLV along with the
+   LOC:FUNC portion of the SRv6 SID to indicate whether arguments are
+   supported for that specific SID.  A zero AL value indicates that the
+   node does not accept an argument for the given SRv6 SID.  Conversely,
+   a non-zero AL value specifies the size of the supported argument,
+   along with the Locator Block Length (LBL), Locator Node Length (LNL),
+   and Function Length (FL) parameters, which define the offset from
+   which the node expects the ARG to be encoded.  All bits beyond LBL +
+   LNL + FL + AL MUST be set to zero.
+
+   The advertisement of the ARG value may be performed either by the
+   node that owns the SRv6 SID and is advertising the LOC:FUNC portion
+   of that SID or by another node/mechanism.  The advertisement of the
+   ARG value MUST specify the size of the argument, its value, and the
+   associated SRv6 Endpoint Behavior of the SID.  Additionally, the
+   specification of the association of the ARG advertisement with the
+   corresponding SID(s) for which the argument applies is REQUIRED.
+
+3.  End.DT2M Signaling for EVPN ESI Filtering
+
+   As specified in [RFC9252], the LOC:FUNC portion of the SRv6 SID with
+   End.DT2M behavior is signaled via the Inclusive Multicast Ethernet
+   Tag route, while the Ethernet Segment Identifier (ESI) Filtering ARG
+   (denoted as Arg.FE2 in [RFC8986]) is signaled via the Ethernet A-D
+   per ES route.  The following subsections provide a more detailed
+   specification of the signaling and processing mechanisms compared to
+   [RFC9252].
+
+   ESI Filtering is a split-horizon mechanism used for multihoming
+   [RFC7432] or Ethernet-Tree (E-Tree) procedures [RFC8317].  ESI
+   Filtering is not applicable in scenarios where:
+
+   *  No E-Tree leaf Broadcast, Unknown Unicast, or Multicast (BUM)
+      traffic exists,
+
+   *  No multihoming is present,
+
+   *  No split-horizon mechanism is required, or
+
+   *  The "Local Bias" method (as specified in [RFC8365]) is employed.
+
+   In this document, "ESI Filtering" is used as a general reference to
+   the procedure performed by the disposition Provider Edge (PE) router
+   to prevent forwarding of BUM traffic to local Ethernet Segments or
+   local leaf attachment circuits, based on the presence of the ESI
+   Filtering ARG.
+
+   The signaling and processing descriptions outlined in the following
+   sections also apply to End.DT2M behavior flavors designed for SRv6
+   SID list compression [RFC9800].  In deployments where a mix of
+   compressed and uncompressed SIDs is present, the behaviors advertised
+   in the Ethernet A-D per ES routes and Inclusive Multicast Ethernet
+   Tag routes MAY consist of a combination of compressed and
+   uncompressed End.DT2M behavior flavors.  The procedures in this
+   document remain valid for such deployments provided that the AL
+   consistency checks between the Ethernet A-D per ES route and
+   Inclusive Multicast Ethernet Tag route, as described in the following
+   subsections, are satisfied.
+
+3.1.  Advertisement of Ethernet A-D per ES Route
+
+   Ethernet A-D per ES routes, as defined in [RFC7432], are utilized to
+   enable split-horizon filtering and fast convergence in multihoming
+   scenarios.  Additionally, Ethernet A-D per ES routes facilitate
+   egress filtering of BUM traffic originating from a leaf, as specified
+   in [RFC8317].
+
+   When ESI Filtering is not in use, no ESI Filtering ARG is required to
+   be conveyed.  However, for backward compatibility and consistency
+   with [RFC9252], the advertisement of this route SHOULD include the
+   BGP Prefix-SID attribute with an SRv6 L2 Service TLV carrying an SRv6
+   Service SID set to ::0 in the SRv6 SID Information Sub-TLV, with the
+   SRv6 Endpoint Behavior set to End.DT2M.  Since the End.DT2M behavior
+   supports the use of an ARG, an SRv6 SID Structure Sub-Sub-TLV MUST be
+   included.  As no ARG value is required to be signaled in this case,
+   the AL MUST be set to 0.
+
+   The following is an example representation of the BGP Prefix-SID
+   attribute encoding in this case:
+
+   BGP Prefix-SID attribute:
+       SRv6 L2 Service TLV:
+           SRv6 SID Information Sub-TLV:
+               SID: ::
+               Behavior: End.DT2M
+               SRv6 SID Structure Sub-Sub-TLV:
+                   LBL: 32, LNL: 16, FL: 16, AL: 0, TPOS-L: 0, TPOS-O: 0
+
+     Figure 1: Ethernet A-D per ES Route Without ARG for ESI Filtering
+
+   When ESI Filtering is in use, the advertisement of this route MUST
+   include the BGP Prefix-SID attribute with an SRv6 L2 Service TLV
+   carrying the SRv6 Service SID that contains the ESI Filtering ARG
+   value within the SRv6 SID Information Sub-TLV (when not using the
+   Transposition Scheme), with the SRv6 Endpoint Behavior set to
+   End.DT2M.  Since the End.DT2M behavior supports the use of an ARG, an
+   SRv6 SID Structure Sub-Sub-TLV MUST be included.  Additionally, as a
+   non-zero ARG value is being signaled, the AL MUST be set to the size
+   of the ARG, and the size SHOULD be a multiple of 8 to ensure
+   consistency across implementations for ease of operations.  The SRv6
+   SID Structure Sub-Sub-TLV MUST set the LBL, LNL, and FL fields with
+   values that indicate the offset at which the ARG value is encoded
+   within the 128-bit SRv6 SID.
+
+   The following is an example representation of the BGP Prefix-SID
+   attribute encoding in this scenario for a 16-bit argument value of
+   'aaaa':
+
+  BGP Prefix-SID attribute:
+      SRv6 L2 Service TLV:
+          SRv6 SID Information Sub-TLV:
+              SID: ::aaaa:0:0:0
+              Behavior: End.DT2M
+              SRv6 SID Structure Sub-Sub-TLV:
+                  LBL: 32, LNL: 16, FL: 16, AL: 16, TPOS-L: 0, TPOS-O: 0
+
+      Figure 2: Ethernet A-D per ES Route with ARG for ESI Filtering
+
+   In the examples above, it would have been possible to set the LBL,
+   LNL, and FL values to 0 and to encode the SRv6 SID as either ::0 or
+   aaaa::. However, such an encoding would not be backward compatible
+   with [RFC9252], as further detailed in Section 4.
+
+   Therefore, it is REQUIRED that the LBL, LNL, and FL values be set in
+   accordance with the SID structure for End.DT2M SRv6 Service SIDs,
+   ensuring compliance with [RFC9252].
+
+3.2.  Advertisement of Inclusive Multicast Ethernet Tag Route
+
+   The Inclusive Multicast Ethernet Tag route, as defined in [RFC7432],
+   is used to advertise multicast traffic reachability information via
+   Multiprotocol BGP (MP-BGP) to all other PE routers within a given
+   EVPN instance.  When utilizing SRv6 transport, the advertisement of
+   this route MUST include the BGP Prefix-SID attribute with an SRv6 L2
+   Service TLV to indicate the use of SRv6.
+
+   Regardless of whether ESI Filtering is in use, the SRv6 Service SID
+   MUST include only the LOC:FUNC portion within the SRv6 SID
+   Information Sub-TLV (when not utilizing the Transposition Scheme),
+   with the SRv6 Endpoint Behavior set to End.DT2M.  Since the End.DT2M
+   behavior supports the use of an ARG, an SRv6 SID Structure Sub-Sub-
+   TLV MUST be included.  The LBL, LNL, and FL fields MUST be set to
+   indicate the structure of the SRv6 Service SID being advertised.
+
+   When ESI Filtering is not in use, no ARG is expected to be received
+   by the router along with the advertised SRv6 Service SID.  Therefore,
+   the AL MUST be set to 0.
+
+   The following is an example representation of the BGP Prefix-SID
+   attribute encoding in this case:
+
+   BGP Prefix-SID attribute:
+       SRv6 L2 Service TLV:
+           SRv6 SID Information Sub-TLV:
+               SID: 2001:db8:1:fbd1::
+               Behavior: End.DT2M
+               SRv6 SID Structure Sub-Sub-TLV:
+                   LBL: 32, LNL: 16, FL: 16, AL: 0, TPOS-L: 0, TPOS-O: 0
+
+        Figure 3: Inclusive Multicast Ethernet Tag Route Without ESI
+                                 Filtering
+
+   When ESI Filtering is in use, the router expects to receive traffic
+   in the data path to the SRv6 Service SID that it has signaled along
+   with the ARG portion embedded in it.  Consequently, the AL MUST be
+   set to the size of the ARG supported by the advertising router for
+   the specific SRv6 Service SID.  The AL value is unique per End.DT2M
+   behavior signaled by the egress PE.  Therefore, the egress PE MUST
+   use the same AL for all local Ethernet Segments with attachment
+   circuits within the same broadcast domain.
+
+   The following is an example representation of the BGP Prefix-SID
+   attribute encoding for this scenario with a 16-bit argument:
+
+  BGP Prefix-SID attribute:
+      SRv6 L2 Service TLV:
+          SRv6 SID Information Sub-TLV:
+              SID: 2001:db8:1:fbd1::
+              Behavior: End.DT2M
+              SRv6 SID Structure Sub-Sub-TLV:
+                  LBL: 32, LNL: 16, FL: 16, AL: 16, TPOS-L: 0, TPOS-O: 0
+
+   Figure 4: Inclusive Multicast Ethernet Tag Route with ESI Filtering
+
+   When ESI Filtering is in use, the advertising router MUST ensure that
+   the AL signaled in the Inclusive Multicast Ethernet Tag route is
+   equal to the AL signaled in the corresponding Ethernet A-D per ES
+   route.
+
+3.3.  Processing at Ingress PE
+
+   An ingress PE receives the LOC:FUNC portion of the SRv6 Service SID
+   to be used for BUM traffic through Inclusive Multicast Ethernet Tag
+   route advertisements.
+
+   When ESI Filtering is not in use, the SRv6 Service SID to be used
+   consists solely of the LOC:FUNC portion received via the Inclusive
+   Multicast Ethernet Tag route.
+
+   When ESI Filtering is in use, the ESI Filtering ARG of the SRv6
+   Service SID is signaled through the Ethernet A-D per ES route.  The
+   ARG, in combination with the LOC:FUNC portion received via the
+   Inclusive Multicast Ethernet Tag route, forms the SRv6 Service SID to
+   be used.
+
+   Since the LOC:FUNC and ARG portions of the SRv6 Service SID are
+   signaled via different route advertisements, there may be cases where
+   the ingress PE receives inconsistent AL values from the two route
+   types.  If the ingress PE expects ESI Filtering to be in use (i.e.,
+   when forwarding BUM traffic to other PEs attached to a shared
+   Ethernet Segment) but does not receive a usable ARG value during
+   processing, it SHOULD log a message to facilitate troubleshooting.
+
+   The ingress PE router MUST follow the processing steps outlined below
+   when handling SRv6 Service SID advertisements:
+
+   1.  If AL=0 is signaled via the Inclusive Multicast Ethernet Tag
+       route, then the egress PE either does not support ESI Filtering
+       or does not require an ESI Filtering ARG for the specific SID.
+       In this case, the SRv6 Service SID is formed using only the
+       LOC:FUNC portion, and all bits after LBL + LNL + FL MUST be set
+       to zero for encoding on the data path.  Additionally, the router
+       MUST ignore the SID value and its SID structure advertised in the
+       corresponding Ethernet A-D per ES route.
+
+   2.  If a non-zero AL is signaled via the Inclusive Multicast Ethernet
+       Tag route, then the matching Ethernet A-D per ES route for the
+       Ethernet Segment is located and the presence of an SRv6 SID
+       advertisement with the End.DT2M behavior is verified.
+
+       a.  If the presence of such a SRv6 SID is not verified, or if the
+           AL is zero in the Ethernet A-D per ES route, then no usable
+           ARG value is available.  The SRv6 Service SID MUST be formed
+           as described in (1) above.
+
+       b.  If the AL values in the Ethernet A-D per ES route and
+           Inclusive Multicast Ethernet Tag route are both non-zero but
+           not equal, then no usable ARG value is available.  This
+           inconsistency in signaling from the egress PE indicates a
+           configuration error.  To prevent potential looping, BUM
+           traffic MUST NOT be forwarded for such routes from the
+           specific Ethernet Segment.  Implementations SHOULD log an
+           error message for troubleshooting this condition.
+
+       c.  If the AL values in the Ethernet A-D per ES route and
+           Inclusive Multicast Ethernet Tag route are both non-zero and
+           equal, then the ARG value from the Ethernet A-D per ES route
+           is considered valid.  This ARG value MUST be encoded within
+           the SRv6 SID (LOC:FUNC) at the ARG offset as specified in the
+           SID structure (i.e., LBL + LNL + FL) in the Inclusive
+           Multicast Ethernet Tag route.  All bits beyond LBL + LNL + FL
+           + AL MUST be set to zero.
+
+   Using the procedures above with the examples in Figures 1 and 3, the
+   SRv6 Service SID encoding for the data plane without an ESI Filtering
+   ARG is as follows:
+
+   Inclusive Multicast Ethernet Tag route:
+    SID: 2001:db8:1:fbd1::
+    Structure: LBL: 32, LNL: 16, FL: 16, AL: 0
+
+   SRv6 Service SID Encoded for Datapath: 2001:db8:1:fbd1::
+
+       Figure 5: SRv6 Service SID Encoding for Data Plane Without ARG
+
+   Using the procedures above with the examples in Figures 2 and 4, the
+   SRv6 Service SID encoding for the data plane along with an ESI
+   Filtering ARG is as follows:
+
+   Ethernet A-D per ES route:
+    SID: ::aaaa:0:0:0
+    Structure: LBL: 32, LNL: 16, FL: 16, AL: 16
+
+   Inclusive Multicast Ethernet Tag route:
+    SID: 2001:db8:1:fbd1::
+    Structure: LBL: 32, LNL: 16, FL: 16, AL: 16
+
+   SRv6 Service SID Encoded for Datapath: 2001:db8:1:fbd1:aaaa::
+
+        Figure 6: SRv6 Service SID Encoding for Data Plane with ARG
+
+   Figure 7 provides another example that illustrates the signaling and
+   processing of multiple bridge domains in a deployment design.
+
+                        +--------------------------------+
+                        |                                |
+                    PE1 |                                |
+                    +---------+                          |
+     BUM on BD1     | +-----+ |                          |
+   +----------------> | BD1 |-------------+              |
+   |                | +-----+ |           |              |
+   |  BUM on BD2    | +-----+ |           v          PE3 |
+   | +--------------> | BD2 |-------+             +---------+
+   | |        +-----| +-----+ |     |             | +-----+ |
+   +----+     |     +---------+     v     ^       | | BD1 |-----CE31
+   |    |     |         |                 |       | +-----+ |
+   |CE12|-----+ ESI-1   |           ^     |       | +-----+ |
+   |    |-----+         |           |     |       | | BD2 |-----CE32
+   +----+     |     +---------+ ^   RT3   RT3     | +-----+ |
+              +-----| +-----+ | |   dt2m  dt2m    +---------+
+                    | | BD1 | | |   BD2   BD1            |
+                    | +-----+ | |   FL:16 FL:32          |
+                    | +-----+ | RT1                      |
+                    | | BD2 | | ESI-1                    |
+                    | +-----+ | AL:16                    |
+                    +---------+                          |
+                     PE2 |                               |
+                         |                               |
+                         |                               |
+                         +-------------------------------+
+
+    Ethernet A-D per ES route for ESI-1:
+     SID: ::aaaa:0:0:0
+     Structure: LBL: 32, LNL: 16, FL: 16, AL: 16
+
+    Inclusive Multicast Ethernet Tag route from BD1:
+     SID: 2001:db8:1:fbd1:fbd1:
+     Structure: LBL: 32, LNL: 16, FL: 32, AL: 16
+
+    Inclusive Multicast Ethernet Tag route from BD2:
+     SID: 2001:db8:1:fbd2::
+     Structure: LBL: 32, LNL: 16, FL: 16, AL: 16
+
+    SRv6 Service SID for datapath from ingress PE1 to egress PE2 on BD1:
+     2001:db8:1:fbd1:fbd1:aaaa::
+    SRv6 Service SID for datapath from ingress PE1 to egress PE2 on BD2:
+     2001:db8:1:fbd2:aaaa::
+
+               Figure 7: Example with Multiple Bridge Domains
+
+4.  Backward Compatibility
+
+   Existing implementations that rely on the bitwise logical-OR
+   operation, as specified in Section 6.3 of [RFC9252], function
+   correctly only when the SID structures of the two EVPN route types
+   are identical.
+
+   Backward compatibility with implementations performing the bitwise
+   logical-OR operation is maintained when the Inclusive Multicast
+   Ethernet Tag route and its corresponding Ethernet A-D per ES route
+   advertise SIDs with the same SID structure, as outlined in Sections
+   3.1 and 3.2.
+
+   However, when the SID structures of the two route types are not
+   identical, the bitwise logical-OR operation specified in [RFC9252]
+   cannot be applied.  Instead, the alternative method specified in
+   Section 3.3 MUST be used to correctly derive the SRv6 Service SID in
+   such cases.
+
+5.  IANA Considerations
+
+   This document has no IANA actions.
+
+6.  Security Considerations
+
+   This document provides a more detailed specification related to the
+   signaling and processing of SRv6 SID advertisements for SRv6 Endpoint
+   Behaviors with arguments.  As such, it does not introduce any new
+   security considerations over and above those already covered by
+   [RFC9252].
+
+7.  References
+
+7.1.  Normative References
+
+   [RFC2119]  Bradner, S., "Key words for use in RFCs to Indicate
+              Requirement Levels", BCP 14, RFC 2119,
+              DOI 10.17487/RFC2119, March 1997,
+              <https://www.rfc-editor.org/info/rfc2119>.
+
+   [RFC7432]  Sajassi, A., Ed., Aggarwal, R., Bitar, N., Isaac, A.,
+              Uttaro, J., Drake, J., and W. Henderickx, "BGP MPLS-Based
+              Ethernet VPN", RFC 7432, DOI 10.17487/RFC7432, February
+              2015, <https://www.rfc-editor.org/info/rfc7432>.
+
+   [RFC8174]  Leiba, B., "Ambiguity of Uppercase vs Lowercase in RFC
+              2119 Key Words", BCP 14, RFC 8174, DOI 10.17487/RFC8174,
+              May 2017, <https://www.rfc-editor.org/info/rfc8174>.
+
+   [RFC8317]  Sajassi, A., Ed., Salam, S., Drake, J., Uttaro, J.,
+              Boutros, S., and J. Rabadan, "Ethernet-Tree (E-Tree)
+              Support in Ethernet VPN (EVPN) and Provider Backbone
+              Bridging EVPN (PBB-EVPN)", RFC 8317, DOI 10.17487/RFC8317,
+              January 2018, <https://www.rfc-editor.org/info/rfc8317>.
+
+   [RFC8402]  Filsfils, C., Ed., Previdi, S., Ed., Ginsberg, L.,
+              Decraene, B., Litkowski, S., and R. Shakir, "Segment
+              Routing Architecture", RFC 8402, DOI 10.17487/RFC8402,
+              July 2018, <https://www.rfc-editor.org/info/rfc8402>.
+
+   [RFC8986]  Filsfils, C., Ed., Camarillo, P., Ed., Leddy, J., Voyer,
+              D., Matsushima, S., and Z. Li, "Segment Routing over IPv6
+              (SRv6) Network Programming", RFC 8986,
+              DOI 10.17487/RFC8986, February 2021,
+              <https://www.rfc-editor.org/info/rfc8986>.
+
+   [RFC9252]  Dawra, G., Ed., Talaulikar, K., Ed., Raszuk, R., Decraene,
+              B., Zhuang, S., and J. Rabadan, "BGP Overlay Services
+              Based on Segment Routing over IPv6 (SRv6)", RFC 9252,
+              DOI 10.17487/RFC9252, July 2022,
+              <https://www.rfc-editor.org/info/rfc9252>.
+
+7.2.  Informative References
+
+   [RFC8365]  Sajassi, A., Ed., Drake, J., Ed., Bitar, N., Shekhar, R.,
+              Uttaro, J., and W. Henderickx, "A Network Virtualization
+              Overlay Solution Using Ethernet VPN (EVPN)", RFC 8365,
+              DOI 10.17487/RFC8365, March 2018,
+              <https://www.rfc-editor.org/info/rfc8365>.
+
+   [RFC8754]  Filsfils, C., Ed., Dukes, D., Ed., Previdi, S., Leddy, J.,
+              Matsushima, S., and D. Voyer, "IPv6 Segment Routing Header
+              (SRH)", RFC 8754, DOI 10.17487/RFC8754, March 2020,
+              <https://www.rfc-editor.org/info/rfc8754>.
+
+   [RFC9800]  Cheng, W., Ed., Filsfils, C., Li, Z., Decraene, B., and F.
+              Clad, Ed., "Compressed SRv6 Segment List Encoding",
+              RFC 9800, DOI 10.17487/RFC9800, June 2025,
+              <https://www.rfc-editor.org/info/rfc9800>.
+
+Acknowledgments
+
+   The authors would like to acknowledge Jayshree Subramanian, Sonal
+   Agarwal, Swadesh Agrawal, Dongling Duan, Luc André Burdet, Patrice
+   Brissette, Senthil Sathappan, Erel Ortacdag, Neil Hart, Will
+   Lockhart, and Vinod Prabhu for their review of the document and input
+   on aspects related to the signaling of the End.DT2M SRv6 Endpoint
+   Behavior that required clarification.  The authors thank Jeffrey
+   Zhang for his shepherd review and suggestions for improving the
+   document.  The authors would also like to thank Gunter Van de Velde
+   for his extensive review and suggestions for improving the
+   readability of the document.
+
+Authors' Addresses
+
+   Ketan Talaulikar
+   Cisco Systems
+   India
+   Email: ketant.ietf@gmail.com
+
+
+   Kamran Raza
+   Cisco Systems
+   Canada
+   Email: skraza@cisco.com
+
+
+   Jorge Rabadan
+   Nokia
+   United States of America
+   Email: jorge.rabadan@nokia.com
+
+
+   Wen Lin
+   Juniper Networks
+   United States of America
+   Email: wlin@juniper.net

@@ -1,0 +1,1616 @@
+﻿
+
+
+
+Internet Engineering Task Force (IETF)                          J. Gould
+Request for Comments: 9537                                      D. Smith
+Category: Standards Track                                 VeriSign, Inc.
+ISSN: 2070-1721                                                J. Kolker
+                                                               R. Carney
+                                                            GoDaddy Inc.
+                                                              March 2024
+
+
+Redacted Fields in the Registration Data Access Protocol (RDAP) Response
+
+Abstract
+
+   This document describes a Registration Data Access Protocol (RDAP)
+   extension for specifying methods of redaction of RDAP responses and
+   explicitly identifying redacted RDAP response fields, using JSONPath
+   as the default expression language.
+
+Status of This Memo
+
+   This is an Internet Standards Track document.
+
+   This document is a product of the Internet Engineering Task Force
+   (IETF).  It represents the consensus of the IETF community.  It has
+   received public review and has been approved for publication by the
+   Internet Engineering Steering Group (IESG).  Further information on
+   Internet Standards is available in Section 2 of RFC 7841.
+
+   Information about the current status of this document, any errata,
+   and how to provide feedback on it may be obtained at
+   https://www.rfc-editor.org/info/rfc9537.
+
+Copyright Notice
+
+   Copyright (c) 2024 IETF Trust and the persons identified as the
+   document authors.  All rights reserved.
+
+   This document is subject to BCP 78 and the IETF Trust's Legal
+   Provisions Relating to IETF Documents
+   (https://trustee.ietf.org/license-info) in effect on the date of
+   publication of this document.  Please review these documents
+   carefully, as they describe your rights and restrictions with respect
+   to this document.  Code Components extracted from this document must
+   include Revised BSD License text as described in Section 4.e of the
+   Trust Legal Provisions and are provided without warranty as described
+   in the Revised BSD License.
+
+Table of Contents
+
+   1.  Introduction
+   2.  Conventions Used in This Document
+   3.  Redaction Methods
+     3.1.  Redaction by Removal Method
+     3.2.  Redaction by Empty Value Method
+     3.3.  Redaction by Partial Value Method
+     3.4.  Redaction by Replacement Value Method
+   4.  Redacted RDAP Response
+     4.1.  RDAP Conformance
+     4.2.  "redacted" Member
+   5.  JSONPath Considerations
+     5.1.  JSONPath Client Considerations
+     5.2.  JSONPath Server Considerations
+   6.  IANA Considerations
+     6.1.  RDAP Extensions Registry
+     6.2.  RDAP JSON Values Registry
+   7.  Security Considerations
+   8.  References
+     8.1.  Normative References
+     8.2.  Informative References
+   Acknowledgements
+   Authors' Addresses
+
+1.  Introduction
+
+   This document describes an RDAP extension for specifying methods of
+   redaction of RDAP responses and explicitly identifying redacted RDAP
+   response fields, using JSONPath as the default expression language.
+   A redacted RDAP field is one that has data removed or replaced in the
+   RDAP response due to server policy, such as the lack of client
+   privilege to receive the field.  This extension can be used to
+   identify redacted RDAP fields in any RDAP object class, as defined in
+   [RFC9083], or RDAP fields defined in RDAP extensions.  Because an
+   RDAP response may exclude a field due to either the lack of data or
+   the lack of RDAP client privileges, this extension is used to
+   explicitly specify which RDAP fields are not included in the RDAP
+   response due to redaction.  It thereby provides a capability for
+   disambiguation between redaction and other possible reasons for data
+   or field absence.
+
+   In [RFC9082], RDAP supports both lookup and search queries, where a
+   lookup query responds with a single object and a search query
+   responds with a list of objects.  This document applies to redaction
+   of a single object of a lookup response and in each of the objects of
+   a search response.
+
+   JSONPath, as defined in [RFC9535], is used as the default expression
+   language to reference RDAP fields that have been redacted.  The
+   redacted JSON fields will be removed, have empty values, have partial
+   values, or be replaced in the RDAP response.  JSON is defined by
+   [RFC8259].
+
+2.  Conventions Used in This Document
+
+   The key words "MUST", "MUST NOT", "REQUIRED", "SHALL", "SHALL NOT",
+   "SHOULD", "SHOULD NOT", "RECOMMENDED", "NOT RECOMMENDED", "MAY", and
+   "OPTIONAL" in this document are to be interpreted as described in
+   BCP 14 [RFC2119] [RFC8174] when, and only when, they appear in all
+   capitals, as shown here.
+
+   The JSON examples include extra line breaks and empty space.  For
+   instance, the JSONPath expressions are broken out into multiple lines
+   when required for illustration.
+
+   The JSONPath expressions in the examples are for illustration
+   purposes with single-role entities, and the exact expressions to be
+   used by the server are out of scope.
+
+3.  Redaction Methods
+
+   Redaction in RDAP can be handled in multiple ways.  The resulting
+   redacted RDAP response MUST comply with the format defined in the
+   RDAP RFCs, such as [RFC9083] and updates.  The use of placeholder
+   text for the values of the RDAP fields, such as "XXXX", MUST NOT be
+   used for redaction, since the placeholder text value may not match
+   the format requirements of each of the RDAP fields, which could
+   provide an inconsistent and unreliable redaction signal.  This
+   section covers the redaction methods that can be used with the
+   redaction signaling defined in Section 4.2.
+
+   RDAP responses, as defined in [RFC9083], include a mix of JSON
+   objects and JSON arrays, where JSON arrays are heavily used for
+   entity objects with jCard [RFC7095].  jCard is a JSON representation
+   of vCard [RFC6350] that inherits its dependency on arrays.  An
+   example is the vCard "ADR" property [RFC6350], or the jCard "adr"
+   property [RFC7095], which defines a sequence of address components.
+   According to [RFC6350], when an "ADR" property component value is
+   missing, the associated component separator MUST still be specified.
+   jCard extends the use of arrays with each individual vCard property
+   being represented by an array of three fixed elements, followed by
+   one or more additional elements.  The mix of JSON objects and JSON
+   arrays impacts the methods used for redaction in RDAP.
+
+   The redaction of RDAP fields fall into the four categories defined in
+   the following subsections.
+
+3.1.  Redaction by Removal Method
+
+   The Redaction by Removal Method is when the RDAP field is removed
+   from the RDAP response, which is the default method.  The Redaction
+   by Removal Method can be done for all RDAP response fields except for
+   response fields using the position in an array to signal the redacted
+   field (e.g., the JSON arrays used with jCard).  RDAP extensions, such
+   as the one described in "Using JSContact in Registration Data Access
+   Protocol (RDAP) JSON Responses" [RDAP-JSCONTACT], do not have a
+   dependency on the use of positional JSON arrays and are therefore
+   suited for the Redaction by Removal Method.
+
+   When an RDAP object is redacted by removal, all of the RDAP object's
+   child fields are also removed.  Only the redacted RDAP object needs
+   to be referenced in the list of redacted fields, as defined in
+   Section 4.2.
+
+   An example of redacting an RDAP object is removing the administrative
+   contact from the RDAP response and including the following "redacted"
+   member:
+
+   "redacted": [
+     {
+       "name": {
+         "description": "Administrative Contact"
+       },
+       "prePath": "$.entities[?(@.roles[0]=='administrative')]",
+       "method": "removal"
+     }
+   ]
+
+                 Figure 1: Redacted Administrative Contact
+
+   The Redaction by Removal Method MUST NOT be used to remove an element
+   of an array where the position of the element in the array determines
+   semantic meaning.  For example, removal of an individual data field
+   in jCard will result in a non-conformant jCard array definition.
+
+3.2.  Redaction by Empty Value Method
+
+   The Redaction by Empty Value Method is when a redacted field is not
+   removed but its value is set to an empty value, such as "" for a
+   jCard text ("text") property or null for a non-text property.  The
+   empty jCard values ("" or null) are referenced in the "redacted"
+   member in place of the jCard property name in an array, such as
+   referencing the "fn" jCard property value at position 3 instead of
+   referencing the "fn" jCard property name at position 0.  The
+   Redaction by Empty Value Method MUST be used only when redacting JSON
+   response fields that use the position in an array to signal the
+   redacted field (e.g., jCard arrays).  Optional jCard properties MUST
+   use the Redaction by Removal Method (Section 3.1) to redact the
+   entire property.  The required jCard "fn" property, defined in
+   Section 6.2.1 of vCard [RFC6350], MUST use the Redaction by Empty
+   Value Method to redact the property value.  Removing the "fn"
+   property would violate vCard [RFC6350], and removing the property
+   value would violate the fixed array positions defined in jCard.
+
+   [
+     "fn",
+     {},
+     "text",
+     ""
+   ]
+
+       Figure 2: Redacted "fn" jCard Property Using the Redaction by
+                             Empty Value Method
+
+   An example of the "redacted" member for the redacted "fn" jCard
+   property value, which is array position 3:
+
+   "redacted": [
+     {
+       "name": {
+         "description": "Registrant Name"
+       },
+       "postPath": "$.entities[?(@.roles[0]=='registrant')].
+         vcardArray[1][?(@[0]=='fn')][3]",
+       "pathLang": "jsonpath",
+       "method": "emptyValue",
+       "reason": {
+         "description": "Server policy"
+       }
+     }
+   ]
+
+         Figure 3: Redacted Registrant Name Using an Array Position
+
+3.3.  Redaction by Partial Value Method
+
+   The Redaction by Partial Value Method is when a redacted field is not
+   removed but its value has a portion of the data removed, such as for
+   the "label" or "fn" jCard properties.  The partial values are
+   referenced in the "redacted" member in place of the property name in
+   an array, such as referencing the "fn" jCard property value at
+   position 3 instead of referencing the "fn" jCard property name at
+   position 0.  The Redaction by Partial Value Method SHOULD be used
+   only when redacting JSON response fields that use a formatted value,
+   where a portion of the value is removed.
+
+   An example of the "label" jCard property in Section 3.3.1.3 of
+   [RFC7095] that redacts "123 Maple Ave\nSuite 901\n":
+
+   ["adr",
+     {
+       "type":"home",
+       "label":"Vancouver\nBC\n1239\n"
+     },
+     "text",
+     [
+       "", "", "", "", "", "", ""
+     ]
+   ]
+
+                 Figure 4: Redacted "label" jCard Property
+
+   An example of the "redacted" member for the redacted "label" jCard
+   property value, based on Section 3.3.1.3 of [RFC7095]:
+
+   "redacted": [
+     {
+       "name": {
+         "description": "Home Address Label"
+       },
+       "postPath": "$.vcardArray[1][?(@[0]=='adr')][1].label",
+       "pathLang": "jsonpath",
+       "method": "partialValue",
+       "reason": {
+         "description": "Server policy"
+       }
+     }
+   ]
+
+    Figure 5: Redacted Label Using the Redaction by Partial Value Method
+
+3.4.  Redaction by Replacement Value Method
+
+   The Redaction by Replacement Value Method is when a redacted field is
+   not removed but its value is replaced with a different value, such as
+   protecting the "email" jCard property value with an anonymized email
+   "text" value or the use of an alternative "uri" value to a web form.
+   Replacing a property value is a form of redaction, since it protects
+   the true property value for privacy reasons.
+
+   [
+     "email",
+     {},
+     "text",
+     "anonymized123@example.com"
+   ]
+
+      Figure 6: Redacted "email" jCard Property Using the Redaction by
+             Replacement Value Method with an Anonymized Email
+
+   "redacted": [
+     {
+       "name": {
+         "description": "Registrant Email"
+       },
+       "postPath": "$.entities[?(@.roles[0]=='registrant')].
+                  vcardArray[1][?(@[0]=='email')][3]",
+       "pathLang": "jsonpath",
+       "method": "replacementValue",
+     }
+   ]
+
+         Figure 7: Redacted Email Using a Replacement Value with an
+                          Anonymized "text" Value
+
+   [
+     "contact-uri",
+     {},
+     "uri",
+     "https://email.example.com/123"
+   ]
+
+      Figure 8: Redacted "email" jCard Property Using the Redaction by
+     Replacement Value Method with a "contact-uri" jCard Property to a
+                                  Web Form
+
+   "redacted": [
+     {
+       "name": {
+         "description": "Registrant Email"
+       },
+       "prePath": "$.entities[?(@.roles[0]=='registrant')].
+                  vcardArray[1][?(@[0]=='email')]",
+       "replacementPath": "$.entities[?(@.roles[0]=='registrant')].
+                  vcardArray[1][?(@[0]=='contact-uri')]",
+       "pathLang": "jsonpath",
+       "method": "replacementValue",
+     }
+   ]
+
+         Figure 9: Redacted Email Using a Replacement Value with a
+                 "contact-uri" jCard Property to a Web Form
+
+4.  Redacted RDAP Response
+
+4.1.  RDAP Conformance
+
+   RDAP responses that contain values described in this document MUST
+   indicate conformance with this specification by including an
+   "rdapConformance" [RFC9083] value of "redacted".  The "redacted"
+   extension identifier is described in Section 6.1.
+
+   "rdapConformance": [
+     "rdap_level_0",
+     "redacted"
+   ]
+
+            Figure 10: "rdapConformance" with Redacted Extension
+
+4.2.  "redacted" Member
+
+   The "redacted" member MUST be added to the RDAP response when there
+   is one or more redacted fields.  The "redacted" member is included as
+   a member of the object instance in a lookup response, such as the
+   object classes defined in [RFC9083], and as a member of the object
+   instances in a search response.
+
+   The server, including a redacted signal, provides an unauthorized
+   client additional information related to the existence of data and
+   MAY exclude the redacted members for RDAP fields that are considered
+   a privacy issue in providing a data existence signal.  The server MAY
+   choose to publish a redaction policy describing how this extension is
+   implemented for their constituency.  The contents of such a policy
+   are outside the scope of this specification.
+
+   The "redacted" member contains an array of objects with the following
+   child members:
+
+   "name":  REQUIRED logical name for the redacted field.  The logical
+       name used for the redacted field is up to server policy.  The
+       logical name is defined using an object with a "type" field
+       denoting a registered redacted name (see Section 6.2) or a
+       "description" field denoting an unregistered redacted name.  The
+       registered redacted names and the chosen unregistered names can
+       meet the needs of different RDAP services or industries.
+
+   "prePath":  OPTIONAL JSON path expression referencing a redacted JSON
+       field in the pre-redacted response, using the expression language
+       defined by the "pathLang" member.  The "prePath" member MAY be
+       set when the redacted field does not exist in the redacted
+       response for the Redaction by Removal Method (Section 3.1) and
+       the Redaction by Replacement Value Method (Section 3.4).  The
+       "prePath" member MUST NOT be set when the "postPath" member is
+       set.
+
+   "postPath":  OPTIONAL JSON path expression referencing a redacted
+       JSON field in the redacted (post-redacted) response, using the
+       expression language defined by the "pathLang" member.  The
+       "postPath" member MUST be set when the redacted field does exist
+       in the redacted response for the Redaction by Empty Value Method
+       (Section 3.2), the Redaction by Partial Value Method
+       (Section 3.3), and the Redaction by Replacement Value Method
+       (Section 3.4).  The "postPath" member MUST NOT be set when the
+       "prePath" member is set.
+
+   "replacementPath":  OPTIONAL JSON path expression of the replacement
+       field of the redacted field with the Redaction by Replacement
+       Value Method (Section 3.4), using the expression language defined
+       by the "pathLang" member.
+
+   "pathLang":  OPTIONAL JSON path expression language used, with the
+       default value of "jsonpath" for JSONPath [RFC9535].  Other JSON
+       path expression languages registered with the "redacted
+       expression language" Type in the "RDAP JSON Values" registry MAY
+       be used based on server policy.
+
+   "method":  OPTIONAL redaction method used, with one of the following
+       values:
+
+       *  "removal" indicating the Redaction by Removal Method
+          (Section 3.1),
+
+       *  "emptyValue" indicating the Redaction by Empty Value Method
+          (Section 3.2),
+
+       *  "partialValue" indicating the Redaction by Partial Value
+          Method (Section 3.3), or
+
+       *  "replacementValue" indicating the Redaction by Replacement
+          Value Method (Section 3.4).
+
+       The default value is "removal" when not provided.
+
+   "reason":  OPTIONAL human-readable reason(s) for the redacted field
+       in the language defined by the "lang" [RFC9083] member.  The
+       default language is "en" if the "lang" [RFC9083] member is not
+       specified.  The reason is defined using an object with an
+       OPTIONAL "type" field denoting a registered redacted reason (see
+       Section 6.2) and an OPTIONAL "description" field denoting an
+       unregistered redacted reason.  The "description" field MUST NOT
+       be a client processing dependency.
+
+   Example of the unredacted version of an RDAP lookup response:
+
+       {
+         "rdapConformance": [
+           "rdap_level_0"
+         ],
+         "objectClassName": "domain",
+         "handle": "ABC123",
+         "ldhName": "example.com",
+         "secureDNS": {
+           "delegationSigned": false
+         },
+         "notices": [
+           {
+             "title": "Terms of Use",
+             "description": [
+               "Service subject to Terms of Use."
+             ],
+             "links": [
+               {
+                 "rel": "self",
+                 "href": "https://www.example.com/terms-of-use",
+                 "type": "text/html",
+                 "value": "https://www.example.com/terms-of-use"
+               }
+             ]
+           }
+         ],
+         "nameservers": [
+           {
+             "objectClassName": "nameserver",
+             "ldhName": "ns1.example.com"
+           },
+           {
+             "objectClassName": "nameserver",
+             "ldhName": "ns2.example.com"
+           }
+         ],
+         "entities": [
+           {
+             "objectClassName": "entity",
+             "handle": "123",
+             "roles": [
+               "registrar"
+             ],
+             "publicIds": [
+               {
+                 "type": "IANA Registrar ID",
+                 "identifier": "1"
+               }
+             ],
+             "vcardArray": [
+               "vcard",
+               [
+                 [
+                   "version",
+                   {},
+                   "text",
+                   "4.0"
+                 ],
+                 [
+                   "fn",
+                   {},
+                   "text",
+                   "Example Registrar Inc."
+                 ],
+                 [
+                   "adr",
+                   {},
+                   "text",
+                   [
+                     "",
+                     "Suite 100",
+                     "123 Example Dr.",
+                     "Dulles",
+                     "VA",
+                     "20166-6503",
+                     "US"
+                   ]
+                 ],
+                 [
+                   "email",
+                   {},
+                   "text",
+                   "contact@organization.example"
+                 ],
+                 [
+                   "tel",
+                   {
+                     "type": "voice"
+                   },
+                   "uri",
+                   "tel:+1.7035555555;ext=1234"
+                 ],
+                 [
+                   "tel",
+                   {
+                     "type": "fax"
+                   },
+                   "uri",
+                   "tel:+1.7035555556"
+                 ]
+               ]
+             ],
+             "entities": [
+               {
+                 "objectClassName": "entity",
+                 "roles": [
+                   "abuse"
+                 ],
+                 "vcardArray": [
+                   "vcard",
+                   [
+                     [
+                       "version",
+                       {},
+                       "text",
+                       "4.0"
+                     ],
+                     [
+                       "fn",
+                       {},
+                       "text",
+                       "Abuse Contact"
+                     ],
+                     [
+                       "email",
+                       {},
+                       "text",
+                       "abuse@organization.example"
+                     ],
+                     [
+                       "tel",
+                       {
+                         "type": "voice"
+                       },
+                       "uri",
+                       "tel:+1.7035555555;ext=1234"
+                     ]
+                   ]
+                 ]
+               }
+             ]
+           },
+           {
+             "objectClassName": "entity",
+             "handle": "XXXX",
+             "roles": [
+               "registrant"
+             ],
+             "vcardArray": [
+               "vcard",
+               [
+                 [
+                   "version",
+                   {},
+                   "text",
+                   "4.0"
+                 ],
+                 [
+                   "fn",
+                   {},
+                   "text",
+                   "Registrant User"
+                 ],
+                 [
+                   "org",
+                   {},
+                   "text",
+                   "Example Inc."
+                 ],
+                 [
+                   "adr",
+                   {},
+                   "text",
+                   [
+                     "",
+                     "Suite 1235",
+                     "4321 Rue Somewhere",
+                     "Quebec",
+                     "QC",
+                     "G1V 2M2",
+                     "Canada"
+                   ]
+                 ],
+                 [
+                   "email",
+                   {},
+                   "text",
+                   "registrant.user@example.com"
+                 ],
+                 [
+                   "tel",
+                   {
+                     "type": "voice"
+                   },
+                   "uri",
+                   "tel:+1-555-555-1235;ext=123"
+                 ],
+                 [
+                   "tel",
+                   {
+                     "type": "fax"
+                   },
+                   "uri",
+                   "tel:+1-555-555-5321"
+                 ]
+               ]
+             ]
+           },
+           {
+             "objectClassName": "entity",
+             "handle": "YYYY",
+             "roles": [
+               "technical"
+             ],
+             "vcardArray": [
+               "vcard",
+               [
+                 [
+                   "version",
+                   {},
+                   "text",
+                   "4.0"
+                 ],
+                 [
+                   "fn",
+                   {},
+                   "text",
+                   "Technical User"
+                 ],
+                 [
+                   "org",
+                   {},
+                   "text",
+                   "Example Inc."
+                 ],
+                 [
+                   "adr",
+                   {},
+                   "text",
+                   [
+                     "",
+                     "Suite 1234",
+                     "4321 Rue Somewhere",
+                     "Quebec",
+                     "QC",
+                     "G1V 2M2",
+                     "Canada"
+                   ]
+                 ],
+                 [
+                   "email",
+                   {},
+                   "text",
+                   "technical.user@example.com"
+                 ],
+                 [
+                   "tel",
+                   {
+                     "type": "voice"
+                   },
+                   "uri",
+                   "tel:+1-555-555-1234;ext=321"
+                 ],
+                 [
+                   "tel",
+                   {
+                     "type": "fax"
+                   },
+                   "uri",
+                   "tel:+1-555-555-4321"
+                 ]
+               ]
+             ]
+           },
+           {
+             "objectClassName": "entity",
+             "handle": "ZZZZ",
+             "roles": [
+               "administrative"
+             ],
+             "vcardArray": [
+               "vcard",
+               [
+                 [
+                   "version",
+                   {},
+                   "text",
+                   "4.0"
+                 ],
+                 [
+                   "fn",
+                   {},
+                   "text",
+                   "Administrative User"
+                 ],
+                 [
+                   "org",
+                   {},
+                   "text",
+                   "Example Inc."
+                 ],
+                 [
+                   "adr",
+                   {},
+                   "text",
+                   [
+                     "",
+                     "Suite 1236",
+                     "4321 Rue Somewhere",
+                     "Quebec",
+                     "QC",
+                     "G1V 2M2",
+                     "Canada"
+                   ]
+                 ],
+                 [
+                   "email",
+                   {},
+                   "text",
+                   "administrative.user@example.com"
+                 ],
+                 [
+                   "tel",
+                   {
+                     "type": "voice"
+                   },
+                   "uri",
+                   "tel:+1-555-555-1236;ext=789"
+                 ],
+                 [
+                   "tel",
+                   {
+                     "type": "fax"
+                   },
+                   "uri",
+                   "tel:+1-555-555-6321"
+                 ]
+               ]
+             ]
+           },
+           {
+             "objectClassName": "entity",
+             "handle": "WWWW",
+             "roles": [
+               "billing"
+             ],
+             "vcardArray": [
+               "vcard",
+               [
+                 [
+                   "version",
+                   {},
+                   "text",
+                   "4.0"
+                 ],
+                 [
+                   "fn",
+                   {},
+                   "text",
+                   "Billing User"
+                 ],
+                 [
+                   "email",
+                   {},
+                   "text",
+                   "billing.user@example.com"
+                 ]
+               ]
+             ]
+           }
+         ],
+         "events": [
+           {
+             "eventAction": "registration",
+             "eventDate": "1997-06-03T00:00:00Z"
+           },
+           {
+             "eventAction": "last changed",
+             "eventDate": "2020-05-28T01:35:00Z"
+           },
+           {
+             "eventAction": "expiration",
+             "eventDate": "2021-06-03T04:00:00Z"
+           }
+         ],
+         "status": [
+           "server delete prohibited",
+           "server update prohibited",
+           "server transfer prohibited",
+           "client transfer prohibited"
+         ]
+       }
+
+                 Figure 11: Unredacted RDAP Lookup Response
+
+   Example of the redacted version of an RDAP lookup response:
+
+       {
+         "rdapConformance": [
+           "rdap_level_0",
+           "redacted"
+         ],
+         "objectClassName": "domain",
+         "ldhName": "example.com",
+         "secureDNS": {
+           "delegationSigned": false
+         },
+         "notices": [
+           {
+             "title": "Terms of Use",
+             "description": [
+               "Service subject to Terms of Use."
+             ],
+             "links": [
+               {
+                 "rel": "self",
+                 "href": "https://www.example.com/terms-of-use",
+                 "type": "text/html",
+                 "value": "https://www.example.com/terms-of-use"
+               }
+             ]
+           }
+         ],
+         "nameservers": [
+           {
+             "objectClassName": "nameserver",
+             "ldhName": "ns1.example.com"
+           },
+           {
+             "objectClassName": "nameserver",
+             "ldhName": "ns2.example.com"
+           }
+         ],
+         "entities": [
+           {
+             "objectClassName": "entity",
+             "handle": "123",
+             "roles": [
+               "registrar"
+             ],
+             "publicIds": [
+               {
+                 "type": "IANA Registrar ID",
+                 "identifier": "1"
+               }
+             ],
+             "vcardArray": [
+               "vcard",
+               [
+                 [
+                   "version",
+                   {},
+                   "text",
+                   "4.0"
+                 ],
+                 [
+                   "fn",
+                   {},
+                   "text",
+                   "Example Registrar Inc."
+                 ],
+                 [
+                   "adr",
+                   {},
+                   "text",
+                   [
+                     "",
+                     "Suite 100",
+                     "123 Example Dr.",
+                     "Dulles",
+                     "VA",
+                     "20166-6503",
+                     "US"
+                   ]
+                 ],
+                 [
+                   "email",
+                   {},
+                   "text",
+                   "contact@organization.example"
+                 ],
+                 [
+                   "tel",
+                   {
+                     "type": "voice"
+                   },
+                   "uri",
+                   "tel:+1.7035555555"
+                 ],
+                 [
+                   "tel",
+                   {
+                     "type": "fax"
+                   },
+                   "uri",
+                   "tel:+1.7035555556"
+                 ]
+               ]
+             ],
+             "entities": [
+               {
+                 "objectClassName": "entity",
+                 "roles": [
+                   "abuse"
+                 ],
+                 "vcardArray": [
+                   "vcard",
+                   [
+                     [
+                       "version",
+                       {},
+                       "text",
+                       "4.0"
+                     ],
+                     [
+                       "fn",
+                       {},
+                       "text",
+                       "Abuse Contact"
+                     ],
+                     [
+                       "email",
+                       {},
+                       "text",
+                       "abuse@organization.example"
+                     ],
+                     [
+                       "tel",
+                       {
+                         "type": "voice"
+                       },
+                       "uri",
+                       "tel:+1.7035555555"
+                     ]
+                   ]
+                 ]
+               }
+             ]
+           },
+           {
+             "objectClassName": "entity",
+             "handle": "XXXX",
+             "roles": [
+               "registrant"
+             ],
+             "vcardArray": [
+               "vcard",
+               [
+                 [
+                   "version",
+                   {},
+                   "text",
+                   "4.0"
+                 ],
+                 [
+                   "fn",
+                   {},
+                   "text",
+                   ""
+                 ],
+                 [
+                   "adr",
+                   {},
+                   "text",
+                   [
+                     "",
+                     "",
+                     "",
+                     "",
+                     "QC",
+                     "",
+                     "Canada"
+                   ]
+                 ]
+               ]
+             ]
+           },
+           {
+             "objectClassName": "entity",
+             "handle": "YYYY",
+             "roles": [
+               "technical"
+             ],
+             "vcardArray": [
+               "vcard",
+               [
+                 [
+                   "version",
+                   {},
+                   "text",
+                   "4.0"
+                 ],
+                 [
+                   "fn",
+                   {},
+                   "text",
+                   ""
+                 ],
+                 [
+                   "org",
+                   {},
+                   "text",
+                   "Example Inc."
+                 ],
+                 [
+                   "adr",
+                   {},
+                   "text",
+                   [
+                     "",
+                     "Suite 1234",
+                     "4321 Rue Somewhere",
+                     "Quebec",
+                     "QC",
+                     "G1V 2M2",
+                     "Canada"
+                   ]
+                 ]
+               ]
+             ]
+           }
+         ],
+         "events": [
+           {
+             "eventAction": "registration",
+             "eventDate": "1997-06-03T00:00:00Z"
+           },
+           {
+             "eventAction": "last changed",
+             "eventDate": "2020-05-28T01:35:00Z"
+           },
+           {
+             "eventAction": "expiration",
+             "eventDate": "2021-06-03T04:00:00Z"
+           }
+         ],
+         "status": [
+           "server delete prohibited",
+           "server update prohibited",
+           "server transfer prohibited",
+           "client transfer prohibited"
+         ],
+         "redacted": [
+           {
+             "name": {
+               "description": "Registry Domain ID"
+             },
+             "prePath": "$.handle",
+             "pathLang": "jsonpath",
+             "method": "removal",
+             "reason": {
+               "description": "Server policy"
+             }
+           },
+           {
+             "name": {
+               "description": "Registrant Name"
+             },
+             "postPath": "$.entities[?(@.roles[0]=='registrant')].
+               vcardArray[1][?(@[0]=='fn')][3]",
+             "pathLang": "jsonpath",
+             "method": "emptyValue",
+             "reason": {
+               "description": "Server policy"
+             }
+           },
+           {
+             "name": {
+               "description": "Registrant Organization"
+             },
+             "prePath": "$.entities[?(@.roles[0]=='registrant')].
+               vcardArray[1][?(@[0]=='org')]",
+             "pathLang": "jsonpath",
+             "method": "removal",
+             "reason": {
+               "description": "Server policy"
+             }
+           },
+           {
+             "name": {
+               "description": "Registrant Street"
+             },
+             "postPath": "$.entities[?(@.roles[0]=='registrant')].
+               vcardArray[1][?(@[0]=='adr')][3][:3]",
+             "pathLang": "jsonpath",
+             "method": "emptyValue",
+             "reason": {
+               "description": "Server policy"
+             }
+           },
+           {
+             "name": {
+               "description": "Registrant City"
+             },
+             "postPath": "$.entities[?(@.roles[0]=='registrant')].
+               vcardArray[1][?(@[0]=='adr')][3][3]",
+             "pathLang": "jsonpath",
+             "method": "emptyValue",
+             "reason": {
+               "description": "Server policy"
+             }
+           },
+           {
+             "name": {
+               "description": "Registrant Postal Code"
+             },
+             "postPath": "$.entities[?(@.roles[0]=='registrant')].
+               vcardArray[1][?(@[0]=='adr')][3][5]",
+             "pathLang": "jsonpath",
+             "method": "emptyValue",
+             "reason": {
+               "description": "Server policy"
+             }
+           },
+           {
+             "name": {
+               "description": "Registrant Email"
+             },
+             "prePath": "$.entities[?(@.roles[0]=='registrant')].
+               vcardArray[1][?(@[0]=='email')]",
+             "method": "removal",
+             "reason": {
+               "description": "Server policy"
+             }
+           },
+           {
+             "name": {
+               "description": "Registrant Phone"
+             },
+             "prePath": "$.entities[?(@.roles[0]=='registrant')].
+               vcardArray[1][?(@[1].type=='voice')]",
+             "method": "removal",
+             "reason": {
+               "description": "Server policy"
+             }
+           },
+           {
+             "name": {
+               "description": "Technical Name"
+             },
+             "postPath": "$.entities[?(@.roles[0]=='technical')].
+               vcardArray[1][?(@[0]=='fn')][3]",
+             "method": "emptyValue",
+             "reason": {
+               "description": "Server policy"
+             }
+           },
+           {
+             "name": {
+               "description": "Technical Email"
+             },
+             "prePath": "$.entities[?(@.roles[0]=='technical')].
+               vcardArray[1][?(@[0]=='email')]",
+             "method": "removal",
+             "reason": {
+               "description": "Server policy"
+             }
+           },
+           {
+             "name": {
+               "description": "Technical Phone"
+             },
+             "prePath": "$.entities[?(@.roles[0]=='technical')].
+               vcardArray[1][?(@[1].type=='voice')]",
+             "method": "removal",
+             "reason": {
+               "description": "Server policy"
+             }
+           },
+           {
+             "name": {
+               "description": "Technical Fax"
+             },
+             "prePath": "$.entities[?(@.roles[0]=='technical')].
+               vcardArray[1][?(@[1].type=='fax')]",
+             "reason": {
+               "description": "Client request"
+             }
+           },
+           {
+             "name": {
+               "description": "Administrative Contact"
+             },
+             "prePath": "$.entities[?(@.roles[0]=='administrative')]",
+             "method": "removal",
+             "reason": {
+               "description": "Refer to the technical contact"
+             }
+           },
+           {
+             "name": {
+               "description": "Billing Contact"
+             },
+             "prePath": "$.entities[?(@.roles[0]=='billing')]",
+             "method": "removal",
+             "reason": {
+               "description": "Refer to the registrant contact"
+             }
+           }
+         ]
+       }
+
+                  Figure 12: Redacted RDAP Lookup Response
+
+   Example of the unredacted version of an RDAP search response:
+
+     {
+       "rdapConformance": [
+         "rdap_level_0"
+       ],
+       "domainSearchResults":[
+         {
+           "objectClassName": "domain",
+           "handle": "ABC121",
+           "ldhName": "example1.com",
+           "links":[
+             {
+               "value":"https://example.com/rdap/domain/example1.com",
+               "rel":"self",
+               "href":"https://example.com/rdap/domain/example1.com",
+               "type":"application/rdap+json"
+             },
+             {
+               "value":"https://example.com/rdap/domain/example1.com",
+               "rel":"related",
+               "href":"https://example.com/rdap/domain/example1.com",
+               "type":"application/rdap+json"
+             }
+           ]
+         },
+         {
+           "objectClassName": "domain",
+           "handle": "ABC122",
+           "ldhName": "example2.com",
+           "links":[
+             {
+               "value":"https://example.com/rdap/domain/example2.com",
+               "rel":"self",
+               "href":"https://example.com/rdap/domain/example2.com",
+               "type":"application/rdap+json"
+             },
+             {
+               "value":"https://example.com/rdap/domain/example2.com",
+               "rel":"related",
+               "href":"https://example.com/rdap/domain/example2.com",
+               "type":"application/rdap+json"
+             }
+           ]
+         }
+       ]
+     }
+
+                 Figure 13: Unredacted RDAP Search Response
+
+   Example of the redacted version of an RDAP search response:
+
+     {
+       "rdapConformance": [
+         "rdap_level_0",
+         "redacted"
+       ],
+       "domainSearchResults":[
+         {
+           "objectClassName": "domain",
+           "ldhName": "example1.com",
+           "links":[
+             {
+               "value":"https://example.com/rdap/domain/example1.com",
+               "rel":"self",
+               "href":"https://example.com/rdap/domain/example1.com",
+               "type":"application/rdap+json"
+             },
+             {
+               "value":"https://example.com/rdap/domain/example1.com",
+               "rel":"related",
+               "href":"https://example.com/rdap/domain/example1.com",
+               "type":"application/rdap+json"
+             }
+           ],
+           "redacted": [
+             {
+               "name": {
+                 "type": "Registry Domain ID"
+               },
+               "prePath": "$.domainSearchResults[0].handle",
+               "pathLang": "jsonpath",
+               "method": "removal",
+               "reason": {
+                 "type": "Server policy"
+               }
+             }
+           ]
+         },
+         {
+           "objectClassName": "domain",
+           "ldhName": "example2.com",
+           "links":[
+             {
+               "value":"https://example.com/rdap/domain/example2.com",
+               "rel":"self",
+               "href":"https://example.com/rdap/domain/example2.com",
+               "type":"application/rdap+json"
+             },
+             {
+               "value":"https://example.com/rdap/domain/example2.com",
+               "rel":"related",
+               "href":"https://example.com/rdap/domain/example2.com",
+               "type":"application/rdap+json"
+             }
+           ],
+           "redacted": [
+             {
+               "name": {
+                 "description": "Registry Domain ID"
+               },
+               "prePath": "$.domainSearchResults[1].handle",
+               "pathLang": "jsonpath",
+               "method": "removal",
+               "reason": {
+                 "description": "Server policy"
+               }
+             }
+           ]
+         }
+       ]
+     }
+
+                  Figure 14: Redacted RDAP Search Response
+
+5.  JSONPath Considerations
+
+   JSONPath [RFC9535] is the default JSON path expression language.
+   This section includes JSONPath considerations for clients and
+   servers.
+
+5.1.  JSONPath Client Considerations
+
+   This section covers considerations for clients that receive responses
+   from servers using JSONPath [RFC9535] to identify redacted RDAP
+   fields with the "prePath", "postPath", or "replacementPath" member of
+   redacted objects in the "redacted" member.  The list of JSONPath
+   client considerations include:
+
+   1.  When the server is using the Redaction by Removal Method
+       (Section 3.1) or the Redaction by Replacement Value Method
+       (Section 3.4) with an alternative field value, the JSONPath
+       expression of the "prePath" member will not resolve successfully
+       with the redacted response.  The client can key off the "name"
+       member for display logic related to the redaction.
+
+5.2.  JSONPath Server Considerations
+
+   This section covers considerations for servers using JSONPath
+   [RFC9535] to identify redacted RDAP fields with the "prePath",
+   "postPath", or "replacementPath" member of redacted objects in the
+   "redacted" member.  The list of JSONPath considerations include:
+
+   1.  Use absolute paths with the '$' JSONPath element.  An example is
+       "$.handle" for the "Registry Domain ID" in a lookup response or
+       "$.domainSearchResults[0].handle" in a search response.
+
+   2.  Validate a JSONPath expression with the non-redacted RDAP
+       response when using the "prePath" member, where evaluating the
+       expression results in returning the redacted field.
+
+   3.  Reference the removed object field when redacting an entire
+       object by the Redaction by Removal Method (Section 3.1), where
+       all of the object's child fields are explicitly removed.  An
+       example is "$.entities[?(@.roles[0]=='administrative')]" for the
+       entire "Administrative Contact".
+
+   4.  Use multiple bases for the redaction of certain content.  For
+       example, if server policy is such that all administrative-role
+       entities are redacted and all technical-role entities are
+       redacted, then an entity having both the administrative role and
+       the technical role could be redacted for two different reasons.
+       In this situation, a server is required to include at least one
+       "redacted" entry, but it should consider including a separate
+       "redacted" entry for each applicable basis for redaction to
+       clearly document the server policies that are relevant to
+       redaction in each instance.
+
+   5.  Reference the removed field when using the Redaction by Removal
+       Method (Section 3.1).  An example is "$.handle" for the "Registry
+       Domain ID".
+
+   6.  Reference index 0 of the jCard property array, which is the jCard
+       "name" property, with a filter expression containing the name of
+       the field when redacting a jCard field using the Redaction by
+       Removal Method (Section 3.1).  An example is "$.entities[?(@.role
+       s[0]=='registrant')].vcardArray[1][?(@[0]=='email')]" for the
+       "Registrant Email".
+
+   7.  Reference the jCard field value or values redacted by array index
+       3 and greater when redacting a jCard field using the Redaction by
+       Empty Value Method (Section 3.2).  The jCard property array index
+       3 and greater contain the property values, where the property
+       values set with an empty value are referenced directly in place
+       of the jCard property name.  Servers can then systematically
+       redact the jCard field value or values based on the JSONPath
+       expressions, and clients will directly know which jCard property
+       values have been redacted.  An example is "$.entities[?(@.roles[0
+       ]=='registrant')].vcardArray[1][?(@[0]=='fn')][3]" for the
+       "Registrant Name" or "$.entities[?(@.roles[0]=='registrant')].vca
+       rdArray[1][?(@[0]=='adr')][3][5]" for the "Registrant Postal
+       Code".
+
+   8.  RDAP extensions should define any special JSONPath considerations
+       required to identify redacted RDAP fields if these considerations
+       are insufficient.
+
+6.  IANA Considerations
+
+6.1.  RDAP Extensions Registry
+
+   IANA has registered the following value in the "RDAP Extensions"
+   registry:
+
+   Extension Identifier:  redacted
+
+   Registry Operator:  Any
+
+   Specification:  RFC 9537
+
+   Contact:  IETF <iesg@ietf.org>
+
+   Intended Usage:  This extension identifies the redacted fields in an
+      RDAP response.
+
+6.2.  RDAP JSON Values Registry
+
+   Section 10.2 of [RFC9083] defines the "RDAP JSON Values" registry
+   with predefined Type field values and a registration policy of Expert
+   Review [RFC8126].  This specification defines three new Type field
+   values that can be used to register predefined redacted name, reason,
+   and expression language values.  IANA has updated the "RDAP JSON
+   Values" registry to accept these additional Type field values as
+   follows:
+
+   "redacted name":  Redacted name being registered.  The registered
+       redacted name is referenced using the "type" field of the
+       redacted "name" field.
+
+   "redacted reason":  Redacted reason being registered.  The registered
+       redacted reason is referenced using the "type" field of the
+       redacted "reason" field.
+
+   "redacted expression language":  Redacted expression language being
+       registered.  The registered redacted expression language is
+       referenced using the "pathLang" field.
+
+   IANA has also listed this document as a reference for the "RDAP JSON
+   Values" registry and has registered the following value:
+
+   Value:  jsonpath
+
+   Type:  redacted expression language
+
+   Description:  JSON path expression language, as defined in RFC 9535.
+
+   Registrant:  IETF
+
+   Contact Information:  iesg@ietf.org
+
+   Reference:  RFC 9537
+
+7.  Security Considerations
+
+   The extension described in this document does not provide any
+   security services beyond those described by [RFC9083].
+
+8.  References
+
+8.1.  Normative References
+
+   [RFC2119]  Bradner, S., "Key words for use in RFCs to Indicate
+              Requirement Levels", BCP 14, RFC 2119,
+              DOI 10.17487/RFC2119, March 1997,
+              <https://www.rfc-editor.org/info/rfc2119>.
+
+   [RFC6350]  Perreault, S., "vCard Format Specification", RFC 6350,
+              DOI 10.17487/RFC6350, August 2011,
+              <https://www.rfc-editor.org/info/rfc6350>.
+
+   [RFC7095]  Kewisch, P., "jCard: The JSON Format for vCard", RFC 7095,
+              DOI 10.17487/RFC7095, January 2014,
+              <https://www.rfc-editor.org/info/rfc7095>.
+
+   [RFC8126]  Cotton, M., Leiba, B., and T. Narten, "Guidelines for
+              Writing an IANA Considerations Section in RFCs", BCP 26,
+              RFC 8126, DOI 10.17487/RFC8126, June 2017,
+              <https://www.rfc-editor.org/info/rfc8126>.
+
+   [RFC8174]  Leiba, B., "Ambiguity of Uppercase vs Lowercase in RFC
+              2119 Key Words", BCP 14, RFC 8174, DOI 10.17487/RFC8174,
+              May 2017, <https://www.rfc-editor.org/info/rfc8174>.
+
+   [RFC8259]  Bray, T., Ed., "The JavaScript Object Notation (JSON) Data
+              Interchange Format", STD 90, RFC 8259,
+              DOI 10.17487/RFC8259, December 2017,
+              <https://www.rfc-editor.org/info/rfc8259>.
+
+   [RFC9082]  Hollenbeck, S. and A. Newton, "Registration Data Access
+              Protocol (RDAP) Query Format", STD 95, RFC 9082,
+              DOI 10.17487/RFC9082, June 2021,
+              <https://www.rfc-editor.org/info/rfc9082>.
+
+   [RFC9083]  Hollenbeck, S. and A. Newton, "JSON Responses for the
+              Registration Data Access Protocol (RDAP)", STD 95,
+              RFC 9083, DOI 10.17487/RFC9083, June 2021,
+              <https://www.rfc-editor.org/info/rfc9083>.
+
+   [RFC9535]  Gössner, S., Ed., Normington, G., Ed., and C. Bormann,
+              Ed., "JSONPath: Query Expressions for JSON", RFC 9535,
+              DOI 10.17487/RFC9535, February 2024,
+              <https://www.rfc-editor.org/info/rfc9535>.
+
+8.2.  Informative References
+
+   [RDAP-JSCONTACT]
+              Loffredo, M. and G. Brown, "Using JSContact in
+              Registration Data Access Protocol (RDAP) JSON Responses",
+              Work in Progress, Internet-Draft, draft-ietf-regext-rdap-
+              jscontact-17, 7 December 2023,
+              <https://datatracker.ietf.org/doc/html/draft-ietf-regext-
+              rdap-jscontact-17>.
+
+Acknowledgements
+
+   The authors wish to thank the following persons for their feedback
+   and suggestions: Marc Blanchet, Tom Harrison, Scott Hollenbeck, Pawel
+   Kowalik, Mario Loffredo, Gustavo Lozano, Andy Newton, Jasdip Singh,
+   and Rick Wilhelm.
+
+Authors' Addresses
+
+   James Gould
+   VeriSign, Inc.
+   12061 Bluemont Way
+   Reston, VA 20190
+   United States of America
+   Email: jgould@verisign.com
+   URI:   http://www.verisign.com
+
+
+   David Smith
+   VeriSign, Inc.
+   12061 Bluemont Way
+   Reston, VA 20190
+   United States of America
+   Email: dsmith@verisign.com
+   URI:   http://www.verisign.com
+
+
+   Jody Kolker
+   GoDaddy Inc.
+   14455 N. Hayden Rd., #219
+   Scottsdale, AZ 85260
+   United States of America
+   Email: jkolker@godaddy.com
+   URI:   http://www.godaddy.com
+
+
+   Roger Carney
+   GoDaddy Inc.
+   14455 N. Hayden Rd., #219
+   Scottsdale, AZ 85260
+   United States of America
+   Email: rcarney@godaddy.com
+   URI:   http://www.godaddy.com

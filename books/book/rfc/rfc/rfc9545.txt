@@ -1,0 +1,562 @@
+﻿
+
+
+
+Internet Engineering Task Force (IETF)                     W. Cheng, Ed.
+Request for Comments: 9545                                         H. Li
+Category: Standards Track                                   China Mobile
+ISSN: 2070-1721                                               C. Li, Ed.
+                                                     Huawei Technologies
+                                                               R. Gandhi
+                                                     Cisco Systems, Inc.
+                                                               R. Zigler
+                                                                Broadcom
+                                                           February 2024
+
+
+     Path Segment Identifier in MPLS-Based Segment Routing Networks
+
+Abstract
+
+   A Segment Routing (SR) path is identified by an SR segment list.  A
+   subset of segments from the segment list cannot be leveraged to
+   distinguish one SR path from another as they may be partially
+   congruent.  SR path identification is a prerequisite for various use
+   cases such as performance measurement and end-to-end 1+1 path
+   protection.
+
+   In an SR over MPLS (SR-MPLS) data plane, an egress node cannot
+   determine on which SR path a packet traversed the network from the
+   label stack because the segment identifiers are removed from the
+   label stack as the packet transits the network.
+
+   This document defines a Path Segment Identifier (PSID) to identify an
+   SR path on the egress node of the path.
+
+Status of This Memo
+
+   This is an Internet Standards Track document.
+
+   This document is a product of the Internet Engineering Task Force
+   (IETF).  It represents the consensus of the IETF community.  It has
+   received public review and has been approved for publication by the
+   Internet Engineering Steering Group (IESG).  Further information on
+   Internet Standards is available in Section 2 of RFC 7841.
+
+   Information about the current status of this document, any errata,
+   and how to provide feedback on it may be obtained at
+   https://www.rfc-editor.org/info/rfc9545.
+
+Copyright Notice
+
+   Copyright (c) 2024 IETF Trust and the persons identified as the
+   document authors.  All rights reserved.
+
+   This document is subject to BCP 78 and the IETF Trust's Legal
+   Provisions Relating to IETF Documents
+   (https://trustee.ietf.org/license-info) in effect on the date of
+   publication of this document.  Please review these documents
+   carefully, as they describe your rights and restrictions with respect
+   to this document.  Code Components extracted from this document must
+   include Revised BSD License text as described in Section 4.e of the
+   Trust Legal Provisions and are provided without warranty as described
+   in the Revised BSD License.
+
+Table of Contents
+
+   1.  Introduction
+     1.1.  Requirements Language
+     1.2.  Abbreviations and Terms
+   2.  Path Segment
+     2.1.  Equal-Cost Multipath (ECMP) Considerations
+   3.  Use Cases
+     3.1.  PSID for Performance Measurement
+     3.2.  PSID for Bidirectional SR Paths
+     3.3.  PSID for End-to-End Path Protection
+     3.4.  Nesting of PSIDs
+   4.  Security Considerations
+   5.  IANA Considerations
+   6.  References
+     6.1.  Normative References
+     6.2.  Informative References
+   Acknowledgements
+   Contributors
+   Authors' Addresses
+
+1.  Introduction
+
+   Segment Routing (SR) [RFC8402] leverages the source-routing paradigm
+   to steer packets from a source node through a controlled set of
+   instructions, called "segments", by prepending the packet with an SR
+   header.  In SR with the MPLS data plane [RFC8660], the SR header is
+   instantiated through a label stack.
+
+   In an SR-MPLS network, when a packet is transmitted along an SR path,
+   the labels in the MPLS label stack will be swapped or popped.  The
+   result of this is that no label or only the last label may be left in
+   the MPLS label stack when the packet reaches the egress node.  Thus,
+   the egress node cannot use the SR label stack to determine along
+   which SR path the packet came.
+
+   However, identifying a path on the egress node is a prerequisite for
+   various use cases in SR-MPLS networks, such as performance
+   measurement (Section 3.1), bidirectional paths (Section 3.2), and
+   end-to-end 1+1 path protection (a Live-Live case) (Section 3.3).
+
+   Therefore, this document defines a new segment type, referred to
+   herein as a "Path Segment".  A Path Segment is defined to uniquely
+   identify an SR path on the egress node of the path.  It MAY be used
+   by the egress node for path identification.  Note that per-path state
+   will be maintained in the egress node due to the requirements in the
+   aforementioned use cases, though in normal cases, the per-path state
+   will be maintained in the ingress node only.
+
+1.1.  Requirements Language
+
+   The key words "MUST", "MUST NOT", "REQUIRED", "SHALL", "SHALL NOT",
+   "SHOULD", "SHOULD NOT", "RECOMMENDED", "NOT RECOMMENDED", "MAY", and
+   "OPTIONAL" in this document are to be interpreted as described in
+   BCP 14 [RFC2119] [RFC8174] when, and only when, they appear in all
+   capitals, as shown here.
+
+1.2.  Abbreviations and Terms
+
+   MPLS:  Multiprotocol Label Switching
+
+   PSID:  Path Segment Identifier
+
+   SID:  Segment Identifier
+
+   SR:  Segment Routing
+
+   SR-MPLS:  SR over MPLS
+
+   SR path:  A path described by a segment list.
+
+   Sub-Path:  A part of a path, which contains a subset of the nodes and
+      links of the path.
+
+2.  Path Segment
+
+   A Path Segment is a local segment [RFC8402] that uniquely identifies
+   an SR path on the egress node.  A Path Segment Identifier (PSID) is a
+   single label that is assigned from the Segment Routing Local Block
+   (SRLB) [RFC8402] of the egress node of an SR path.
+
+   A PSID is used to identify a segment list.  However, one PSID can be
+   used to identify multiple segment lists in some use cases if needed.
+   For example, one single PSID MAY be used to identify some or all
+   segment lists in a candidate path or an SR policy if an operator
+   would like to aggregate these segment lists in operation.
+
+   When a PSID is used, the PSID can be inserted at the ingress node and
+   MUST immediately follow the last label of the SR path; in other
+   words, it must be inserted after the routing segment (adjacency,
+   node, or prefix segment) that is pointing to the egress node of the
+   SR path.  Therefore, a PSID will not be the top label in the label
+   stack when received on an intermediate node of the associated path,
+   but it can be the top label in the label stack on the penultimate
+   node.
+
+   The value of the TTL field in the MPLS label stack entry containing a
+   PSID can be set to any value except 0.  If a PSID is the bottom
+   label, the S bit MUST be set, and if the PSID is NOT the bottom
+   label, the S bit MUST be 0.
+
+   The egress node MUST pop the PSID.  The egress node MAY use the PSID
+   for further processing.  For example, when performance measurement is
+   enabled on the SR path, it can trigger packet counting or
+   timestamping.
+
+   The addition of the PSID will require the egress to read and process
+   the PSID label in addition to the regular processing.  This
+   additional processing may have an impact on forwarding performance.
+   Behavior relating to the use of explicit null directly preceding the
+   PSID is undefined in this document.
+
+   A Generic Associated Channel Label (GAL) MAY be used for Operations,
+   Administration, and Maintenance (OAM) in MPLS networks.  As per
+   [RFC5586], when a GAL is used, the Associated Channel Header (ACH)
+   appears immediately after the bottom of the label stack.
+
+   The SR path computation needs to know the Maximum SID Depth (MSD)
+   that can be imposed at the ingress node of a given SR path [RFC8664].
+   This ensures that the SID stack depth of a computed path does not
+   exceed the number of SIDs the node is capable of imposing.  As per
+   [RFC8491], the MSD signals the total number of MPLS labels that can
+   be imposed, where the total number of MPLS labels includes the PSID.
+
+   An example label stack with a PSID is shown in Figure 1:
+
+               +--------------------+
+               |       ...          |
+               +--------------------+
+               |      Label 1       |
+               +--------------------+
+               |      Label 2       |
+               +--------------------+
+               |       ...          |
+               +--------------------+
+               |      Label n       |
+               +--------------------+
+               |        PSID        |
+               +--------------------+
+               ~       Payload      ~
+               +--------------------+
+
+                     Figure 1: Label Stack with a PSID
+
+   Where:
+
+   *  The Labels 1 to n are the segment label stack used to direct how
+      to steer the packets along the SR path.
+
+   *  The PSID identifies the SR path in the context of the egress node
+      of the SR path.
+
+   The signaling of the PSID between the egress node, the ingress node,
+   and possibly a centralized controller is out of the scope of this
+   document.
+
+2.1.  Equal-Cost Multipath (ECMP) Considerations
+
+   If an Entropy Label (EL) is also used on the egress node, as per
+   [RFC6790], the EL and Entropy Label Indicator (ELI) would be placed
+   before the tunnel label; hence, they do not interfere with the PSID,
+   which is placed below.
+
+   It is worthy to note that in the case of ECMP, with or without the
+   use of an EL, the SR packets may be forwarded over multiple paths.
+   In this case, the SID list cannot directly reflect the actual
+   forwarding path and the PSID can only identify the SID list rather
+   than the actual forwarding path.
+
+   Also, similar to a Synonymous Flow Label (SFL) [RFC8957], the
+   introduction of a PSID to an existing flow may cause that flow to
+   take a different path through the network under the conditions of
+   ECMP.  In turn, this may invalidate certain uses of the PSID, such as
+   performance measurement applications.  Therefore, the considerations
+   of SFLs as per Section 5 of [RFC8957] also apply to PSIDs in
+   implementation.
+
+3.  Use Cases
+
+   This section describes use cases that can leverage the PSID.  The
+   content is for informative purposes, and the detailed solutions might
+   be defined in other documents in the future.
+
+3.1.  PSID for Performance Measurement
+
+   As defined in [RFC7799], performance measurement can be classified
+   into Passive, Active, and Hybrid measurements.  Since a PSID is
+   encoded in the SR-MPLS label stack, as shown in Figure 1, existing
+   implementations on the egress node can leverage a PSID for measuring
+   packet counts.
+
+   For Passive performance measurement, path identification at the
+   measuring points is the prerequisite.  A PSID can be used by the
+   measuring points (e.g., the ingress and egress nodes of the SR path
+   or a centralized controller) to correlate the packet counts and
+   timestamps from the ingress and egress nodes for a specific SR path;
+   then, packet loss and delay can be calculated for the end-to-end
+   path, respectively.
+
+   Furthermore, a PSID can also be used for:
+
+   *  Active performance measurement for an SR path in SR-MPLS networks
+      for collecting packet counters and timestamps from the egress node
+      using probe messages.
+
+   *  In situ OAM [RFC9197] for SR-MPLS to identify the SR path
+      associated with the in situ data fields in the data packets on the
+      egress node.
+
+   *  In-band performance measurement for SR-MPLS to identify the SR
+      path associated with the collected performance metrics.
+
+3.2.  PSID for Bidirectional SR Paths
+
+   In some scenarios (e.g., mobile backhaul transport networks), there
+   are requirements to support bidirectional paths [RFC6965], and the
+   path is normally treated as a single entity.  Forward and reverse
+   directions of the path have the same fate; for example, failure in
+   one direction will result in switching traffic at both directions.
+   MPLS supports this by introducing the concepts of a co-routed
+   bidirectional Label Switched Path (LSP) and an associated
+   bidirectional LSP [RFC5654].
+
+   In the current SR architecture, an SR path is a unidirectional path
+   [RFC8402].  In order to support bidirectional SR paths, a
+   straightforward way is to bind two unidirectional SR paths to a
+   single bidirectional SR path.  PSIDs can be used to identify and
+   correlate the traffic for the two unidirectional SR paths at both
+   ends of the bidirectional path.
+
+   The mechanism of constructing bidirectional paths using a PSID is out
+   of the scope of this document and has been described in several
+   documents, such as [BIDIR-PATH] and [SR-EXTENSIONS].
+
+3.3.  PSID for End-to-End Path Protection
+
+   For end-to-end 1+1 path protection (i.e., a Live-Live case), the
+   egress node of the path needs to know the set of paths that
+   constitute the primary and the secondaries in order to select the
+   primary path packets for onward transmission and to discard the
+   packets from the secondaries [RFC4426].
+
+   To do this in SR, each SR path needs a path identifier that is unique
+   at the egress node.  For SR-MPLS, this can be the Path Segment label
+   allocated by the egress node.
+
+   The detailed solution of using a PSID in end-to-end 1+1 path
+   protection is out of the scope of this document.
+
+3.4.  Nesting of PSIDs
+
+   A Binding SID (BSID) [RFC8402] can be used for SID list compression.
+   With a BSID, an end-to-end SR path in a trusted domain can be split
+   into several sub-paths, where each sub-path is identified by a BSID.
+   Then, an end-to-end SR path can be identified by a list of BSIDs;
+   therefore, it can provide better scalability.
+
+   A BSID and a PSID can be combined to achieve both sub-path and end-
+   to-end path monitoring.  A reference model for such a combination
+   (Figure 2) shows an end-to-end path (A->D) in a trusted domain that
+   spans three subdomains (the Access, Aggregation, and Core domains)
+   and consists of three sub-paths, one in each subdomain (sub-path
+   (A->B), sub-path (B->C), and sub-path (C->D)).
+
+   The SID list of a sub-path can be expressed as <SID1, SID2, ...,
+   SIDn, s-PSID>, where the s-PSID is the PSID of the sub-path.  Each
+   sub-path is associated with a BSID and an s-PSID.
+
+   The SID list of the end-to-end path can be expressed as <BSID1,
+   BSID2, ..., BSIDn, e-PSID>, where the e-PSID is the PSID of the end-
+   to-end path.
+
+   Figure 2 shows the details of the label stacks when a PSID and a BSID
+   are used to support both sub-path and end-to-end path monitoring in a
+   multi-domain scenario.
+
+            /--------\       /--------\       /--------\
+          /            \   /            \   /            \
+        A{    Access    }B{  Aggregation }C{     Core     }D
+          \            /   \            /   \            /
+            \--------/       \--------/       \--------/
+          sub-path(A->B)    sub-path(B->C)   sub-path(C->D)
+       |<--------------->|<-------------->|<-------------->|
+                             E2E Path(A->D)
+       |<------------------------------------------------->|
+
+    +-------------+
+    ~A->B sub-path~
+    +-------------+  +-------------+
+    |s-PSID(A->B) |  ~B->C sub-path~
+    +-------------+  +-------------+  +-------------+
+    | BSID(B->C)  |  |s-PSID(B->C) |  ~C->D sub-path~
+    +-------------+  +-------------+  +-------------+
+    | BSID(C->D)  |  | BSID(C->D)  |  |s-PSID(C->D) |
+    +-------------+  +-------------+  +-------------+  +------------+
+    |e-PSID(A->D) |  |e-PSID(A->D) |  |e-PSID(A->D) |  |e-PSID(A->D)|
+    +-------------+  +-------------+  +-------------+  +------------+
+
+                         Figure 2: Nesting of PSIDs
+
+4.  Security Considerations
+
+   A PSID in SR-MPLS is a local label similar to other labels and
+   segments, such as a VPN label, defined in MPLS and SR-MPLS.  The data
+   plane processing of a PSID is a local implementation of an ingress
+   node or an egress node, which follows the same logic of an existing
+   MPLS data plane.  As per the definition of a PSID, only the egress
+   node and the ingress node of the associated path will learn the
+   information of a PSID.  The intermediate nodes of this path will not
+   learn it.
+
+   A PSID may be used on an ingress node that is not the ingress of the
+   associated path if the associated label stack with the PSID is part
+   of a deeper label stack that represents a longer path.  For example,
+   the case described in Section 3.4 and the related BSID are not used
+   while the original label stack of a sub-path is inserted as a part of
+   the whole label stack.  In this case, the PSID must be distributed in
+   a trusted domain under the considerations defined in Section 8.1 of
+   [RFC8402].
+
+   A PSID is used within an SR-MPLS trusted domain [RFC8402] and must
+   not leak outside the domain; therefore, no new security threats are
+   introduced compared to current SR-MPLS.  As per [RFC8402], SR domain
+   boundary routers MUST filter any external traffic destined to a label
+   associated with a segment within the trusted domain; this applies to
+   a PSID as well.  Other security considerations of SR-MPLS described
+   in Section 8.1 of [RFC8402] apply to this document.
+
+   The distribution of a PSID from an egress node to an ingress node is
+   performed within an SR-trusted domain, and it is out of the scope of
+   this document.  The details of the mechanism and related security
+   considerations will be described in other documents.
+
+5.  IANA Considerations
+
+   This document has no IANA actions.
+
+6.  References
+
+6.1.  Normative References
+
+   [RFC2119]  Bradner, S., "Key words for use in RFCs to Indicate
+              Requirement Levels", BCP 14, RFC 2119,
+              DOI 10.17487/RFC2119, March 1997,
+              <https://www.rfc-editor.org/info/rfc2119>.
+
+   [RFC8174]  Leiba, B., "Ambiguity of Uppercase vs Lowercase in RFC
+              2119 Key Words", BCP 14, RFC 8174, DOI 10.17487/RFC8174,
+              May 2017, <https://www.rfc-editor.org/info/rfc8174>.
+
+   [RFC8402]  Filsfils, C., Ed., Previdi, S., Ed., Ginsberg, L.,
+              Decraene, B., Litkowski, S., and R. Shakir, "Segment
+              Routing Architecture", RFC 8402, DOI 10.17487/RFC8402,
+              July 2018, <https://www.rfc-editor.org/info/rfc8402>.
+
+   [RFC8660]  Bashandy, A., Ed., Filsfils, C., Ed., Previdi, S.,
+              Decraene, B., Litkowski, S., and R. Shakir, "Segment
+              Routing with the MPLS Data Plane", RFC 8660,
+              DOI 10.17487/RFC8660, December 2019,
+              <https://www.rfc-editor.org/info/rfc8660>.
+
+6.2.  Informative References
+
+   [BIDIR-PATH]
+              Li, C., Chen, M., Cheng, W., Gandhi, R., and Q. Xiong,
+              "Path Computation Element Communication Protocol (PCEP)
+              Extensions for Associated Bidirectional Segment Routing
+              (SR) Paths", Work in Progress, Internet-Draft, draft-ietf-
+              pce-sr-bidir-path-13, 13 February 2024,
+              <https://datatracker.ietf.org/doc/html/draft-ietf-pce-sr-
+              bidir-path-13>.
+
+   [RFC4426]  Lang, J., Ed., Rajagopalan, B., Ed., and D. Papadimitriou,
+              Ed., "Generalized Multi-Protocol Label Switching (GMPLS)
+              Recovery Functional Specification", RFC 4426,
+              DOI 10.17487/RFC4426, March 2006,
+              <https://www.rfc-editor.org/info/rfc4426>.
+
+   [RFC5586]  Bocci, M., Ed., Vigoureux, M., Ed., and S. Bryant, Ed.,
+              "MPLS Generic Associated Channel", RFC 5586,
+              DOI 10.17487/RFC5586, June 2009,
+              <https://www.rfc-editor.org/info/rfc5586>.
+
+   [RFC5654]  Niven-Jenkins, B., Ed., Brungard, D., Ed., Betts, M., Ed.,
+              Sprecher, N., and S. Ueno, "Requirements of an MPLS
+              Transport Profile", RFC 5654, DOI 10.17487/RFC5654,
+              September 2009, <https://www.rfc-editor.org/info/rfc5654>.
+
+   [RFC6790]  Kompella, K., Drake, J., Amante, S., Henderickx, W., and
+              L. Yong, "The Use of Entropy Labels in MPLS Forwarding",
+              RFC 6790, DOI 10.17487/RFC6790, November 2012,
+              <https://www.rfc-editor.org/info/rfc6790>.
+
+   [RFC6965]  Fang, L., Ed., Bitar, N., Zhang, R., Daikoku, M., and P.
+              Pan, "MPLS Transport Profile (MPLS-TP) Applicability: Use
+              Cases and Design", RFC 6965, DOI 10.17487/RFC6965, August
+              2013, <https://www.rfc-editor.org/info/rfc6965>.
+
+   [RFC7799]  Morton, A., "Active and Passive Metrics and Methods (with
+              Hybrid Types In-Between)", RFC 7799, DOI 10.17487/RFC7799,
+              May 2016, <https://www.rfc-editor.org/info/rfc7799>.
+
+   [RFC8491]  Tantsura, J., Chunduri, U., Aldrin, S., and L. Ginsberg,
+              "Signaling Maximum SID Depth (MSD) Using IS-IS", RFC 8491,
+              DOI 10.17487/RFC8491, November 2018,
+              <https://www.rfc-editor.org/info/rfc8491>.
+
+   [RFC8664]  Sivabalan, S., Filsfils, C., Tantsura, J., Henderickx, W.,
+              and J. Hardwick, "Path Computation Element Communication
+              Protocol (PCEP) Extensions for Segment Routing", RFC 8664,
+              DOI 10.17487/RFC8664, December 2019,
+              <https://www.rfc-editor.org/info/rfc8664>.
+
+   [RFC8957]  Bryant, S., Chen, M., Swallow, G., Sivabalan, S., and G.
+              Mirsky, "Synonymous Flow Label Framework", RFC 8957,
+              DOI 10.17487/RFC8957, January 2021,
+              <https://www.rfc-editor.org/info/rfc8957>.
+
+   [RFC9197]  Brockners, F., Ed., Bhandari, S., Ed., and T. Mizrahi,
+              Ed., "Data Fields for In Situ Operations, Administration,
+              and Maintenance (IOAM)", RFC 9197, DOI 10.17487/RFC9197,
+              May 2022, <https://www.rfc-editor.org/info/rfc9197>.
+
+   [SR-EXTENSIONS]
+              Li, C., Li, Z., Yin, Y., Cheng, W., and K. Talaulikar, "SR
+              Policy Extensions for Path Segment and Bidirectional
+              Path", Work in Progress, Internet-Draft, draft-ietf-idr-
+              sr-policy-path-segment-09, 19 February 2024,
+              <https://datatracker.ietf.org/doc/html/draft-ietf-idr-sr-
+              policy-path-segment-09>.
+
+Acknowledgements
+
+   The authors would like to thank Adrian Farrel, Stewart Bryant,
+   Shuangping Zhan, Alexander Vainshtein, Andrew G. Malis, Ketan
+   Talaulikar, Shraddha Hegde, Xinyue Zhang, Loa Andersson, and Bruno
+   Decraene for their review, suggestions, comments, and contributions
+   to this document.
+
+   The authors would like to acknowledge the contribution from Alexander
+   Vainshtein on "Nesting of PSIDs" (Section 3.4).
+
+Contributors
+
+   The following people have substantially contributed to this document.
+
+   Mach(Guoyi) Chen
+   Huawei Technologies Co., Ltd.
+   Email: mach.chen@huawei.com
+
+
+   Lei Wang
+   China Mobile
+   Email: wangleiyj@chinamobile.com
+
+
+   Aihua Liu
+   ZTE Corp.
+   Email: liu.aihua@zte.com.cn
+
+
+   Greg Mirsky
+   ZTE Corp.
+   Email: gregimirsky@gmail.com
+
+
+   Gyan S. Mishra
+   Verizon Inc.
+   Email: gyan.s.mishra@verizon.com
+
+
+Authors' Addresses
+
+   Weiqiang Cheng (editor)
+   China Mobile
+   Email: chengweiqiang@chinamobile.com
+
+
+   Han Li
+   China Mobile
+   Email: lihan@chinamobile.com
+
+
+   Cheng Li (editor)
+   Huawei Technologies
+   China
+   Email: c.l@huawei.com
+
+
+   Rakesh Gandhi
+   Cisco Systems, Inc.
+   Canada
+   Email: rgandhi@cisco.com
+
+
+   Royi Zigler
+   Broadcom
+   Email: royi.zigler@broadcom.com
