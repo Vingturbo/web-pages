@@ -1,0 +1,568 @@
+﻿
+
+
+
+Internet Engineering Task Force (IETF)                      M. Boucadair
+Request for Comments: 9870                                        Orange
+Category: Standards Track                                     T. Reddy.K
+ISSN: 2070-1721                                                    Nokia
+                                                            October 2025
+
+
+Export of UDP Options Information in IP Flow Information Export (IPFIX)
+
+Abstract
+
+   This document specifies new IP Flow Information Export (IPFIX)
+   Information Elements for UDP Options.
+
+Status of This Memo
+
+   This is an Internet Standards Track document.
+
+   This document is a product of the Internet Engineering Task Force
+   (IETF).  It represents the consensus of the IETF community.  It has
+   received public review and has been approved for publication by the
+   Internet Engineering Steering Group (IESG).  Further information on
+   Internet Standards is available in Section 2 of RFC 7841.
+
+   Information about the current status of this document, any errata,
+   and how to provide feedback on it may be obtained at
+   https://www.rfc-editor.org/info/rfc9870.
+
+Copyright Notice
+
+   Copyright (c) 2025 IETF Trust and the persons identified as the
+   document authors.  All rights reserved.
+
+   This document is subject to BCP 78 and the IETF Trust's Legal
+   Provisions Relating to IETF Documents
+   (https://trustee.ietf.org/license-info) in effect on the date of
+   publication of this document.  Please review these documents
+   carefully, as they describe your rights and restrictions with respect
+   to this document.  Code Components extracted from this document must
+   include Revised BSD License text as described in Section 4.e of the
+   Trust Legal Provisions and are provided without warranty as described
+   in the Revised BSD License.
+
+Table of Contents
+
+   1.  Introduction
+   2.  Conventions and Definitions
+   3.  UDP Options at a Glance
+   4.  New UDP IPFIX Information Elements
+     4.1.  udpSafeOptions
+     4.2.  udpUnsafeOptions
+     4.3.  udpExID
+     4.4.  udpSafeExIDList
+     4.5.  udpUnsafeExIDList
+   5.  Examples
+     5.1.  Reduced-Size Encoding
+     5.2.  SAFE Experimental Option
+     5.3.  ExIDs and Reduced-Size Encoding
+   6.  Security Considerations
+   7.  IANA Considerations
+     7.1.  IPFIX Information Elements
+   8.  References
+     8.1.  Normative References
+     8.2.  Informative References
+   Acknowledgments
+   Authors' Addresses
+
+1.  Introduction
+
+   IP Flow Information Export (IPFIX) [RFC7011] is a protocol that is
+   widely deployed in networks for traffic management purposes
+   (Section 2 of [RFC6632]).  The protocol specifies the encoding of a
+   set of basic data types and how the various Information Elements
+   (IEs) are transmitted.  In order to support the export of new Flow-
+   related measurement data, new IEs can be defined and registered in a
+   dedicated IANA registry [IANA-IPFIX] for interoperability.
+
+   This document specifies new IPFIX Information Elements for UDP
+   Options (Section 4).  A brief overview of UDP Options is provided in
+   Section 3.
+
+   The IE specified in Section 4.1 uses the new abstract data type
+   ("unsigned256") defined in [RFC9740].
+
+   Transport (including MTU) considerations are discussed in Section 10
+   of [RFC7011].
+
+   Examples to illustrate the use of the new IPFIX Information Elements
+   are provided in Section 5.
+
+2.  Conventions and Definitions
+
+   The key words "MUST", "MUST NOT", "REQUIRED", "SHALL", "SHALL NOT",
+   "SHOULD", "SHOULD NOT", "RECOMMENDED", "NOT RECOMMENDED", "MAY", and
+   "OPTIONAL" in this document are to be interpreted as described in
+   BCP 14 [RFC2119] [RFC8174] when, and only when, they appear in all
+   capitals, as shown here.
+
+   This document uses the IPFIX-specific terminology (e.g., Flow)
+   defined in Section 2 of [RFC7011].  As in the base IPFIX
+   specification [RFC7011], these IPFIX-specific terms have the first
+   letter of a word capitalized.
+
+   The document adheres to the naming conventions for Information
+   Elements per Section 2.3 of [RFC7012].
+
+   Also, this document uses the terms defined in Section 3 of [RFC9868],
+   especially "datagram" and "surplus area".
+
+3.  UDP Options at a Glance
+
+   UDP [RFC0768] does not support an extension mechanism similar to the
+   options supported by other transport protocols, such as TCP
+   [RFC9293], Stream Control Transmission Protocol (SCTP) [RFC9260], or
+   Datagram Congestion Control Protocol (DCCP) [RFC4340].  Such a
+   mechanism can be useful for various applications, e.g., to discover a
+   path MTU or share timestamps.  To fill that void, [RFC9868] extends
+   UDP with a mechanism to insert extensions in datagrams.  To do so,
+   and unlike the conventional approach that relies upon transport
+   headers, [RFC9868] uses trailers.  Concretely, UDP Options are placed
+   in the surplus area (that is, the area of an IP payload that follows
+   a UDP packet).  See Figure 1.  An example of the use of UDP Options
+   for Datagram Packetization Layer Path MTU Discovery (DPLPMTUD) is
+   described in [RFC9869].
+
+                             IP transport payload
+                <------------------------------------------------->
+      +--------+---------+----------------------+------------------+
+      | IP Hdr | UDP Hdr |     UDP user data    |   surplus area   |
+      +--------+---------+----------------------+------------------+
+                <------------------------------>
+                           UDP Length
+
+                           Figure 1: Surplus Area
+
+   Sections 4.1 and 4.2 introduce new IEs to export the observed UDP
+   Options.
+
+   UDP Options are unambiguously identified by means of a 1-byte field,
+   called "Kind".
+
+   Options indicated by Kind values in the range 0-191 are called SAFE
+   Options.  Such options can be silently ignored by legacy receivers
+   because they do not alter the UDP user data (Section 11 of
+   [RFC9868]).  SAFE Options are exported using the IE defined in
+   Section 4.1.
+
+   Options indicated by Kind values in the range 192-255 are called
+   UNSAFE Options.  Such options are not safe for legacy receivers to
+   ignore because they alter the UDP user data (Section 12 of
+   [RFC9868]).  UNSAFE Options are exported using the IE defined in
+   Section 4.2.
+
+   UDP Options occur per-packet within a Flow and can be inserted at any
+   time in the Flow.
+
+   [RFC9868] reserves two options for experiments: the Experimental
+   (EXP, Kind=127) Option for SAFE Options and the UNSAFE Experimental
+   (UEXP, Kind=254) Option.  For both options, Experiment Identifiers
+   (ExIDs) are used to differentiate concurrent use of these options.
+   Known ExIDs are expected to be registered within IANA.  Section 4.4
+   specifies a new IPFIX IE to export observed ExIDs in the EXP Options.
+   Also, Section 4.5 specifies a new IPFIX IE to export observed ExIDs
+   in the UEXP Options.  Only 16-bit ExIDs are supported in [RFC9868].
+
+   This document does not intend to elaborate operational guidance/
+   implications of UDP Options.  The document focuses exclusively on
+   exporting observed UDP Options in datagrams.
+
+4.  New UDP IPFIX Information Elements
+
+   Given the Kind structure of SAFE and UNSAFE UDP Options, using one
+   single IE that would multiplex both types of options will limit the
+   benefits of reduced-size encoding in the presence of UNSAFE Options.
+   For example, at least 24 octets would be needed to report mandatory
+   SAFE Options that are observed in a Flow.  In order to use less bits
+   to report observed UDP Options, distinct IEs are thus defined to
+   report SAFE (Section 4.1) and UNSAFE (Section 4.2) UDP Options.  As
+   further detailed in Section 5.1, only one octet is needed to report
+   mandatory SAFE Options.
+
+4.1.  udpSafeOptions
+
+   Name:  udpSafeOptions
+
+   ElementID:  525
+
+   Description:  Observed SAFE UDP Options in a Flow.  The information
+      is encoded in a set of bit fields.
+
+      Options are mapped to bits according to their option numbers.  UDP
+      Option Kind 0 corresponds to the least significant bit in the
+      udpSafeOptions IE, while Kind 191 corresponds to the 65th most
+      significant bit of the IE.  The bit is set to 1 if the
+      corresponding SAFE UDP Option is observed at least once in the
+      Flow.  The bit is set to 0 if the option is never observed in the
+      Flow.  The 64 most significant bits MUST be set to 0.
+
+      The reduced-size encoding per Section 6.2 of [RFC7011] is followed
+      whenever fewer octets are needed to report observed SAFE UDP
+      Options.  For example, if only option Kinds <= 31 are observed,
+      then the value of the udpSafeOptions IE can be encoded as
+      unsigned32, or if only option Kinds <= 63 are observed, then the
+      value of the udpSafeOptions IE can be encoded as unsigned64.
+
+      The presence of udpSafeExIDList is an indication that the SAFE
+      Experimental Option is observed in a Flow.  The presence of
+      udpSafeExIDList takes precedence over setting the corresponding
+      bit in the udpSafeOptions IE for the same Flow.  In order to
+      optimize the use of the reduced-size encoding in the presence of
+      udpSafeExIDList IE, the Exporter MUST NOT set the EXP flag of the
+      udpSafeOptions IE that is reported for the same Flow to 1.
+
+   Abstract Data Type:  unsigned256
+
+   Data Type Semantics:  flags
+
+   Additional Information:  See the "UDP Option Kind Numbers" registry
+      at [UDP_OPTIONS].
+
+      See [RFC9868] for more details about UDP Options.
+
+   Reference:  RFC 9870
+
+4.2.  udpUnsafeOptions
+
+   Name:  udpUnsafeOptions
+
+   ElementID:  526
+
+   Description:  Observed UNSAFE UDP Options in a Flow.  The information
+      is encoded in a set of bit fields.
+
+      Options are mapped to bits according to their option numbers.  UDP
+      Option Kind 192 corresponds to the least significant bit in the
+      udpUnsafeOptions IE, while Kind 255 corresponds to the most
+      significant bit of the IE.  The bit is set to 1 if the
+      corresponding UNSAFE UDP Option is observed at least once in the
+      Flow.  The bit is set to 0 if the option is never observed in the
+      Flow.
+
+      The reduced-size encoding per Section 6.2 of [RFC7011] is followed
+      whenever fewer octets are needed to report observed UNSAFE UDP
+      Options.
+
+      The presence of udpUnsafeExIDList is an indication that the UNSAFE
+      Experimental Option is observed in a Flow.  The presence of
+      udpUnsafeExIDList takes precedence over setting the corresponding
+      bit in the udpUnsafeOptions IE for the same Flow.  In order to
+      optimize the use of the reduced-size encoding in the presence of
+      udpUnsafeExIDList IE, the Exporter MUST NOT set the UEXP flag of
+      the udpUnsafeOptions IE that is reported for the same Flow to 1.
+
+   Abstract Data Type:  unsigned64
+
+   Data Type Semantics:  flags
+
+   Additional Information:  See the "UDP Option Kind Numbers" registry
+      at [UDP_OPTIONS].
+
+      See [RFC9868] for more details about UDP Options.
+
+   Reference:  RFC 9870
+
+4.3.  udpExID
+
+   Name:  udpExID
+
+   ElementID:  527
+
+   Description:  Observed ExID in an Experimental (EXP, Kind=127) Option
+      or an UNSAFE Experimental (UEXP, Kind=254) Option.
+
+      A basicList of udpExID is used to report udpSafeExIDList and
+      udpUnsafeExIDList values.
+
+   Abstract Data Type:  unsigned16
+
+   Data Type Semantics:  identifier
+
+   Additional Information:  See the "TCP/UDP Experimental Option
+      Experiment Identifiers (TCP/UDP ExIDs)" registry at [UDP_ExIDs].
+
+      See [RFC9868] for more details about ExIDs.
+
+   Reference:  RFC 9870
+
+4.4.  udpSafeExIDList
+
+   Name:  udpSafeExIDList
+
+   ElementID:  528
+
+   Description:  Observed ExIDs in the Experimental (EXP, Kind=127)
+      Option.
+
+      A basicList of udpExID Information Elements in which each udpExID
+      Information Element carries the ExID observed in an EXP Option.
+
+   Abstract Data Type:  basicList
+
+   Data Type Semantics:  list
+
+   Additional Information:  See the "TCP/UDP Experimental Option
+      Experiment Identifiers (TCP/UDP ExIDs)" registry at [UDP_ExIDs].
+
+      See [RFC9868] for more details about ExIDs.
+
+   Reference:  RFC 9870
+
+4.5.  udpUnsafeExIDList
+
+   Name:  udpUnsafeExIDList
+
+   ElementID:  529
+
+   Description:  Observed ExIDs in the UNSAFE Experimental (UEXP,
+      Kind=254) Option.
+
+      A basicList of udpExID Information Elements in which each udpExID
+      Information Element carries the ExID observed in an UEXP Option.
+
+   Abstract Data Type:  basicList
+
+   Data Type Semantics:  list
+
+   Additional Information:  See the "TCP/UDP Experimental Option
+      Experiment Identifiers (TCP/UDP ExIDs)" registry at [UDP_ExIDs].
+
+      See [RFC9868] for more details about ExIDs.
+
+   Reference:  RFC 9870
+
+5.  Examples
+
+5.1.  Reduced-Size Encoding
+
+   Given the UDP Kind allocation in Section 10 of [RFC9868] and the
+   option mapping defined in Section 4.1 of this document, fewer octets
+   are likely to be used for Flows with mandatory UDP Options.
+
+   Figure 2 shows an example of the Kind/bit mappings in the
+   udpSafeOptions IE for a Flow in which End of Options List (EOL,
+   Kind=0) and Additional Payload Checksum (APC, Kind=2) Options are
+   observed.  Only the bits that corresponds to EOL and APC Options are
+   set to 1.
+
+       MSB                                                       LSB
+                            1                          25
+        0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 ... 8 9 0 1 2 3 4 5
+       +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+...+-+-+-+-+-+-+-+-+
+       |0|0|0|0|0|0|0|0|0|0|0|0|0|0|0|0|0|0|0|0|   |0|0|0|0|0|1|0|1|
+       +-+-+-+-+-+-+-+-+-+-+-+-+-+-++-++-+-+-+-+...+-+-+-+-+-+-+-+-+
+
+     Figure 2: An Example of udpSafeOptions IE with EOL and APC Options
+
+   One octet is sufficient to report these observed options because the
+   leading zeros are dropped per the reduced-size encoding guidance.
+   Concretely, the reported udpSafeOptions IE will be set to 0x05
+   (Figure 3).
+
+                             MSB           LSB
+                              0 1 2 3 4 5 6 7
+                             +-+-+-+-+-+-+-+-+
+                             |0|0|0|0|0|1|0|1|
+                             +-+-+-+-+-+-+-+-+
+
+     Figure 3: An Example of the Wire udpSafeOptions IE Value with EOL
+                              and APC Options
+
+5.2.  SAFE Experimental Option
+
+   Let us now consider a UDP Flow in which SAFE Experimental Options are
+   observed.  If a udpSafeOptions IE is exported for this Flow, then
+   that IE will have the EXP bit set to 1 (Figure 4).  This example does
+   not make any assumption about the presence of other UDP Options ("X"
+   can be set to 0 or 1).
+
+        MSB                                                     LSB
+                          12                          25
+         0 1 2 3 ... 7 8 9 0 1 2 3 4 5 6 7 8 9 ... 8 9 0 1 2 3 4 5
+        +-+-+-+-+...+-+-+-+-+-+-+-+-+-+-+-+-+-+-+...+-+-+-+-+-+-+-+
+        |X|X|X|X|   |X|X|X|X|X|X|X|X|X|X|X|1|X|X|   |X|X|X|X|X|X|X|
+        +-+-+-+-+...+-+-+-+-+-+-+-+-++-++-+-+-+-+...+-+-+-+-+-+-+-+
+
+           Figure 4: An Example of udpSafeOptions with EXP Option
+
+5.3.  ExIDs and Reduced-Size Encoding
+
+   Now assume that EOL, APC, EXP, and UEXP Options are observed in a
+   Flow.  Let us also consider that the observed SAFE Experimental
+   Options have ExIDs set to 0x9858 and 0xE2D4 and UNSAFE Experimental
+   Options have ExIDs set to 0xC3D9 and 0x1234.  Figure 5 shows an
+   excerpt of the Data Set encoding with a focus on SAFE Experimental
+   Options that have ExIDs.  The fields are defined in [RFC6313].
+
+      MSB                                                          LSB
+      0                   1                   2                   3
+      0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
+     :                           ...                                 :
+     +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+     |      255      |        List Length = 9        |semantic=allof |
+     +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+     |           udpExID = 527       |         Field Length = 2      |
+     +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+     | SAFE ExID =  0x9858           | SAFE ExID = 0xE2D4            |
+     +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+     |      255      |        List Length = 9        |semantic=allof |
+     +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+     |           udpExID = 527       |         Field Length = 2      |
+     +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+     | UNSAFE ExID =  0xC3D9         | UNSAFE ExID =  0x1234         |
+     +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+     :                           ...                                 :
+
+           Figure 5: Example of UDP Experimental Option ExID IEs
+
+   Following the guidance in Section 4.1, the reported udpSafeOptions IE
+   will be set to 0x05 even in the presence of EXP Options.
+
+6.  Security Considerations
+
+   This document does not introduce new security considerations other
+   than those already discussed in Section 11 of [RFC7011] and Section 8
+   of [RFC7012].
+
+   The reader may refer to Section 24 of [RFC9868] for the security
+   considerations related to UDP Options.
+
+7.  IANA Considerations
+
+7.1.  IPFIX Information Elements
+
+   IANA has added the following new IEs to the "IPFIX Information
+   Elements" registry under the "IP Flow Information Export (IPFIX)
+   Entities" registry group [IANA-IPFIX]:
+
+        +===========+===================+=========================+
+        | ElementID | Name              | Reference               |
+        +===========+===================+=========================+
+        | 525       | udpSafeOptions    | Section 4.1 of RFC 9870 |
+        +-----------+-------------------+-------------------------+
+        | 526       | udpUnsafeOptions  | Section 4.2 of RFC 9870 |
+        +-----------+-------------------+-------------------------+
+        | 527       | udpExID           | Section 4.3 of RFC 9870 |
+        +-----------+-------------------+-------------------------+
+        | 528       | udpSafeExIDList   | Section 4.4 of RFC 9870 |
+        +-----------+-------------------+-------------------------+
+        | 529       | udpUnsafeExIDList | Section 4.5 of RFC 9870 |
+        +-----------+-------------------+-------------------------+
+
+                  Table 1: New IPFIX Information Elements
+
+   udpSafeOptions uses the abstract data type ("unsigned256") defined in
+   [RFC9740].
+
+8.  References
+
+8.1.  Normative References
+
+   [RFC0768]  Postel, J., "User Datagram Protocol", STD 6, RFC 768,
+              DOI 10.17487/RFC0768, August 1980,
+              <https://www.rfc-editor.org/info/rfc768>.
+
+   [RFC2119]  Bradner, S., "Key words for use in RFCs to Indicate
+              Requirement Levels", BCP 14, RFC 2119,
+              DOI 10.17487/RFC2119, March 1997,
+              <https://www.rfc-editor.org/info/rfc2119>.
+
+   [RFC6313]  Claise, B., Dhandapani, G., Aitken, P., and S. Yates,
+              "Export of Structured Data in IP Flow Information Export
+              (IPFIX)", RFC 6313, DOI 10.17487/RFC6313, July 2011,
+              <https://www.rfc-editor.org/info/rfc6313>.
+
+   [RFC7011]  Claise, B., Ed., Trammell, B., Ed., and P. Aitken,
+              "Specification of the IP Flow Information Export (IPFIX)
+              Protocol for the Exchange of Flow Information", STD 77,
+              RFC 7011, DOI 10.17487/RFC7011, September 2013,
+              <https://www.rfc-editor.org/info/rfc7011>.
+
+   [RFC7012]  Claise, B., Ed. and B. Trammell, Ed., "Information Model
+              for IP Flow Information Export (IPFIX)", RFC 7012,
+              DOI 10.17487/RFC7012, September 2013,
+              <https://www.rfc-editor.org/info/rfc7012>.
+
+   [RFC8174]  Leiba, B., "Ambiguity of Uppercase vs Lowercase in RFC
+              2119 Key Words", BCP 14, RFC 8174, DOI 10.17487/RFC8174,
+              May 2017, <https://www.rfc-editor.org/info/rfc8174>.
+
+   [RFC9740]  Boucadair, M. and B. Claise, "New IPFIX Information
+              Elements for TCP Options and IPv6 Extension Headers",
+              RFC 9740, DOI 10.17487/RFC9740, March 2025,
+              <https://www.rfc-editor.org/info/rfc9740>.
+
+   [RFC9868]  Touch, J. and C. Heard, Ed., "Transport Options for UDP",
+              RFC 9868, DOI 10.17487/RFC9868, October 2025,
+              <https://www.rfc-editor.org/info/rfc9868>.
+
+8.2.  Informative References
+
+   [IANA-IPFIX]
+              IANA, "IP Flow Information Export (IPFIX) Entities",
+              <https://www.iana.org/assignments/ipfix>.
+
+   [RFC4340]  Kohler, E., Handley, M., and S. Floyd, "Datagram
+              Congestion Control Protocol (DCCP)", RFC 4340,
+              DOI 10.17487/RFC4340, March 2006,
+              <https://www.rfc-editor.org/info/rfc4340>.
+
+   [RFC6632]  Ersue, M., Ed. and B. Claise, "An Overview of the IETF
+              Network Management Standards", RFC 6632,
+              DOI 10.17487/RFC6632, June 2012,
+              <https://www.rfc-editor.org/info/rfc6632>.
+
+   [RFC9260]  Stewart, R., Tüxen, M., and K. Nielsen, "Stream Control
+              Transmission Protocol", RFC 9260, DOI 10.17487/RFC9260,
+              June 2022, <https://www.rfc-editor.org/info/rfc9260>.
+
+   [RFC9293]  Eddy, W., Ed., "Transmission Control Protocol (TCP)",
+              STD 7, RFC 9293, DOI 10.17487/RFC9293, August 2022,
+              <https://www.rfc-editor.org/info/rfc9293>.
+
+   [RFC9869]  Fairhurst, G. and T. Jones, "Datagram Packetization Layer
+              Path MTU Discovery (DPLPMTUD) for UDP Options", RFC 9869,
+              DOI 10.17487/RFC9869, October 2025,
+              <https://www.rfc-editor.org/info/rfc9869>.
+
+   [UDP_ExIDs]
+              IANA, "TCP/UDP Experimental Option Experiment Identifiers
+              (TCP/UDP ExIDs)", <https://www.iana.org/assignments/udp>.
+
+   [UDP_OPTIONS]
+              IANA, "UDP Option Kind Numbers",
+              <https://www.iana.org/assignments/udp>.
+
+Acknowledgments
+
+   Thanks to Benoît Claise for the discussion on the ordering of IPFIX
+   IEs.  Thanks to Paul Aitken for the review and comments.
+
+   Thanks to Tommy Pauly for the TSVART review, Joe Touch for the INTDIR
+   review, Robert Sparks for the GENART review, Watson Ladd for the
+   SECDIR review, and Jouni Korhonen for the OPSDIR review.
+
+   Thanks to Thomas Graf for the shepherd review.
+
+   Thanks to Mahesh Jethanandani for the AD review.
+
+   Thanks to Éric Vyncke, Roman Danyliw, and Zahed Sarker for the IESG
+   review.
+
+Authors' Addresses
+
+   Mohamed Boucadair
+   Orange
+   35000 Rennes
+   France
+   Email: mohamed.boucadair@orange.com
+
+
+   Tirumaleswar Reddy.K
+   Nokia
+   India
+   Email: kondtir@gmail.com

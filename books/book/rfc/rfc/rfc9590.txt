@@ -1,0 +1,274 @@
+﻿
+
+
+
+Internet Engineering Task Force (IETF)                      K. Murchison
+Request for Comments: 9590                                   B. Gondwana
+Category: Standards Track                                       Fastmail
+ISSN: 2070-1721                                                 May 2024
+
+
+     IMAP Extension for Returning Mailbox METADATA in Extended LIST
+
+Abstract
+
+   This document defines an extension to the Internet Message Access
+   Protocol (IMAP) LIST command that allows the client to request
+   mailbox annotations (metadata), along with other information
+   typically returned by the LIST command.
+
+Status of This Memo
+
+   This is an Internet Standards Track document.
+
+   This document is a product of the Internet Engineering Task Force
+   (IETF).  It represents the consensus of the IETF community.  It has
+   received public review and has been approved for publication by the
+   Internet Engineering Steering Group (IESG).  Further information on
+   Internet Standards is available in Section 2 of RFC 7841.
+
+   Information about the current status of this document, any errata,
+   and how to provide feedback on it may be obtained at
+   https://www.rfc-editor.org/info/rfc9590.
+
+Copyright Notice
+
+   Copyright (c) 2024 IETF Trust and the persons identified as the
+   document authors.  All rights reserved.
+
+   This document is subject to BCP 78 and the IETF Trust's Legal
+   Provisions Relating to IETF Documents
+   (https://trustee.ietf.org/license-info) in effect on the date of
+   publication of this document.  Please review these documents
+   carefully, as they describe your rights and restrictions with respect
+   to this document.  Code Components extracted from this document must
+   include Revised BSD License text as described in Section 4.e of the
+   Trust Legal Provisions and are provided without warranty as described
+   in the Revised BSD License.
+
+Table of Contents
+
+   1.  Introduction
+   2.  Conventions Used in This Document
+   3.  METADATA Return Option to LIST Command
+   4.  Examples
+   5.  Formal Syntax
+   6.  Security Considerations
+   7.  Privacy Considerations
+   8.  IANA Considerations
+     8.1.  Registration of IMAP Capability LIST-METADATA
+     8.2.  Registration of LIST-EXTENDED Option METADATA
+   9.  References
+     9.1.  Normative References
+     9.2.  Informative References
+   Authors' Addresses
+
+1.  Introduction
+
+   IMAP clients sometimes fetch mailbox metadata (e.g., color) to
+   augment the display of mailboxes for the logged-in user.  In order to
+   do that, the client is forced to issue a LIST or LSUB command to list
+   all available mailboxes, followed by a GETMETADATA command for each
+   mailbox found.  This document defines an extension to the IMAP LIST
+   command that is identified by the capability string "LIST-METADATA".
+   The LIST-METADATA extension allows the client to request annotations
+   on available mailboxes, along with other information typically
+   returned by the LIST command.
+
+2.  Conventions Used in This Document
+
+   In examples, "C:" indicates lines sent by a client that is connected
+   to a server.  "S:" indicates lines sent by the server to the client.
+
+   The key words "MUST", "MUST NOT", "REQUIRED", "SHALL", "SHALL NOT",
+   "SHOULD", "SHOULD NOT", "RECOMMENDED", "NOT RECOMMENDED", "MAY", and
+   "OPTIONAL" in this document are to be interpreted as described in
+   BCP 14 [RFC2119] [RFC8174] when, and only when, they appear in all
+   capitals, as shown here.
+
+   Long lines in examples are wrapped using "The Single Backslash
+   Strategy" described in [RFC8792].
+
+3.  METADATA Return Option to LIST Command
+
+   [RFC5464] defines the GETMETADATA command that is used by an IMAP
+   client to retrieve mailbox annotations.  Sometimes, a client will
+   have to look up the metadata for some or all of the mailboxes
+   returned by the LIST command.  Doing so in multiple GETMETADATA
+   commands wastes bandwidth and can degrade performance if the client
+   does not pipeline the requests.
+
+   This document extends the LIST command with a new return option,
+   "METADATA", which allows the client to request all of the desired
+   information in a single command.  For each listable mailbox matching
+   the list pattern and selection options, the server MUST return an
+   untagged LIST response, followed by one or more untagged METADATA
+   responses containing the mailbox annotations requested by the client.
+   The untagged METADATA responses to an extended LIST command have the
+   same syntax and semantics as those that would be returned by
+   GETMETADATA commands on the same set of listable mailboxes (see
+   Section 4.4.1 of [RFC5464]).  As per Section 4.4 of [RFC5464], the
+   server may return all requested annotations in a single METADATA
+   response for each mailbox, or it may split the requested annotations
+   into multiple METADATA responses for each mailbox.
+
+   If the server is unable to look up the annotations for given mailbox,
+   it MAY drop the corresponding METADATA response.  In such a
+   situation, the LIST command would still return a tagged OK reply.
+
+4.  Examples
+
+   The following are examples of fetching metadata from only the top-
+   level hierarchies of the mailbox using different sets of selection
+   criteria (see Section 6.3.9 of [RFC9051]).
+
+   In this example:
+
+   *  The "color" annotation for the "foo" mailbox has not been set, so
+      the METADATA response has a value of "NIL" (i.e., has no value).
+
+   *  "bar" has children, but isn't an actual mailbox itself, so it has
+      no METADATA response.
+
+  ========== NOTE: '\' line wrapping per RFC 8792 ===========
+
+  C: A00 CAPABILITY
+  S: * CAPABILITY IMAP4rev1 IMAP4rev2 \
+                  LIST-EXTENDED LIST-METADATA METADATA
+  S: A00 OK Completed.
+  C: A01 LIST "" % \
+              RETURN (METADATA ("/shared/vendor/cmu/cyrus-imapd/color"))
+  S: * LIST () "." "INBOX"
+  S: * METADATA INBOX ("/shared/vendor/cmu/cyrus-imapd/color" "#b71c1c")
+  S: * LIST () "." "foo"
+  S: * METADATA "foo" ("/shared/vendor/cmu/cyrus-imapd/color" NIL)
+  S: * LIST (\NonExistent) "." "bar"
+  S: A01 OK List completed.
+
+   In this example, the LIST response for the "foo" mailbox is returned
+   because it has matching children, but no METADATA response is
+   returned because "foo" itself doesn't match the selection criteria.
+
+  ========== NOTE: '\' line wrapping per RFC 8792 ===========
+
+  C: A02 LIST (SUBSCRIBED RECURSIVEMATCH) "" % \
+              RETURN (METADATA ("/shared/vendor/cmu/cyrus-imapd/color"))
+  S: * LIST (\Subscribed) "." "INBOX"
+  S: * METADATA INBOX ("/shared/vendor/cmu/cyrus-imapd/color" "#b71c1c")
+  S: * LIST () "." "foo" (CHILDINFO ("SUBSCRIBED"))
+  S: A02 OK List completed.
+
+5.  Formal Syntax
+
+   The following syntax specification uses the Augmented Backus-Naur
+   Form (ABNF) as described in [RFC5234].  Note that "return-option" is
+   defined in [RFC5258] and "entry" is defined in [RFC5464].
+
+   return-option =/ "METADATA" SP "(" entry *(SP entry) ")"
+
+6.  Security Considerations
+
+   This specification does not introduce any additional security
+   concerns beyond those described in [RFC5258] and [RFC5464].
+
+7.  Privacy Considerations
+
+   This specification does not introduce any additional privacy concerns
+   beyond those described in [RFC5464].
+
+8.  IANA Considerations
+
+8.1.  Registration of IMAP Capability LIST-METADATA
+
+   Per this document, IANA has added the "LIST-METADATA" IMAP capability
+   to the "IMAP Capabilities" registry located at
+   <https://www.iana.org/assignments/imap4-capabilities/>.
+
+8.2.  Registration of LIST-EXTENDED Option METADATA
+
+   Per this document, IANA has registered the "METADATA" LIST-EXTENDED
+   option in the "LIST-EXTENDED options" registry located at
+   <https://www.iana.org/assignments/imap-list-extended/>.
+
+   LIST-EXTENDED option name:
+      METADATA
+
+   LIST-EXTENDED option type:
+      RETURN
+
+   LIST-EXTENDED option description:
+      Causes the LIST command to return METADATA responses in addition
+      to LIST responses.
+
+   Published specification:
+      RFC 9590, Section 3
+
+   Security considerations:
+      RFC 9590, Section 6
+
+   Intended usage:
+      COMMON
+
+   Person and email address to contact for further information:
+      Kenneth Murchison <murch@fastmailteam.com> and
+      Bron Gondwana <brong@fastmailteam.com>
+
+   Owner/Change controller:
+      IESG <iesg@ietf.org>
+
+9.  References
+
+9.1.  Normative References
+
+   [RFC2119]  Bradner, S., "Key words for use in RFCs to Indicate
+              Requirement Levels", BCP 14, RFC 2119,
+              DOI 10.17487/RFC2119, March 1997,
+              <https://www.rfc-editor.org/info/rfc2119>.
+
+   [RFC5234]  Crocker, D., Ed. and P. Overell, "Augmented BNF for Syntax
+              Specifications: ABNF", STD 68, RFC 5234,
+              DOI 10.17487/RFC5234, January 2008,
+              <https://www.rfc-editor.org/info/rfc5234>.
+
+   [RFC5258]  Leiba, B. and A. Melnikov, "Internet Message Access
+              Protocol version 4 - LIST Command Extensions", RFC 5258,
+              DOI 10.17487/RFC5258, June 2008,
+              <https://www.rfc-editor.org/info/rfc5258>.
+
+   [RFC5464]  Daboo, C., "The IMAP METADATA Extension", RFC 5464,
+              DOI 10.17487/RFC5464, February 2009,
+              <https://www.rfc-editor.org/info/rfc5464>.
+
+   [RFC8174]  Leiba, B., "Ambiguity of Uppercase vs Lowercase in RFC
+              2119 Key Words", BCP 14, RFC 8174, DOI 10.17487/RFC8174,
+              May 2017, <https://www.rfc-editor.org/info/rfc8174>.
+
+   [RFC9051]  Melnikov, A., Ed. and B. Leiba, Ed., "Internet Message
+              Access Protocol (IMAP) - Version 4rev2", RFC 9051,
+              DOI 10.17487/RFC9051, August 2021,
+              <https://www.rfc-editor.org/info/rfc9051>.
+
+9.2.  Informative References
+
+   [RFC8792]  Watsen, K., Auerswald, E., Farrel, A., and Q. Wu,
+              "Handling Long Lines in Content of Internet-Drafts and
+              RFCs", RFC 8792, DOI 10.17487/RFC8792, June 2020,
+              <https://www.rfc-editor.org/info/rfc8792>.
+
+Authors' Addresses
+
+   Kenneth Murchison
+   Fastmail US LLC
+   1429 Walnut Street
+   Suite 1201
+   Philadelphia, PA 19102
+   United States of America
+   Email: murch@fastmailteam.com
+
+
+   Bron Gondwana
+   Fastmail Pty Ltd
+   Level 2, 114 William Street
+   Melbourne VIC 3000
+   Australia
+   Email: brong@fastmailteam.com

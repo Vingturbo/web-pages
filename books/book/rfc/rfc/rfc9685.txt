@@ -1,0 +1,1929 @@
+﻿
+
+
+
+Internet Engineering Task Force (IETF)                   P. Thubert, Ed.
+Request for Comments: 9685                                 November 2024
+Updates: 4861, 6550, 6553, 8505, 9010                                   
+Category: Standards Track                                               
+ISSN: 2070-1721
+
+
+Listener Subscription for IPv6 Neighbor Discovery Multicast and Anycast
+                               Addresses
+
+Abstract
+
+   This document updates the 6LoWPAN extensions to IPv6 Neighbor
+   Discovery (specified in RFCs 4861 and 8505) to enable a listener to
+   subscribe to an IPv6 anycast or multicast address.  This document
+   also updates the Routing Protocol for Low-Power and Lossy Networks
+   (RPL) (specified in RFCs 6550 and 6553) to add a new Non-Storing
+   multicast mode and new support for anycast addresses in Storing and
+   Non-Storing modes.  This document extends RFC 9010 to enable a
+   6LoWPAN Router (6LR) to inject the anycast and multicast addresses in
+   RPL.
+
+Status of This Memo
+
+   This is an Internet Standards Track document.
+
+   This document is a product of the Internet Engineering Task Force
+   (IETF).  It represents the consensus of the IETF community.  It has
+   received public review and has been approved for publication by the
+   Internet Engineering Steering Group (IESG).  Further information on
+   Internet Standards is available in Section 2 of RFC 7841.
+
+   Information about the current status of this document, any errata,
+   and how to provide feedback on it may be obtained at
+   https://www.rfc-editor.org/info/rfc9685.
+
+Copyright Notice
+
+   Copyright (c) 2024 IETF Trust and the persons identified as the
+   document authors.  All rights reserved.
+
+   This document is subject to BCP 78 and the IETF Trust's Legal
+   Provisions Relating to IETF Documents
+   (https://trustee.ietf.org/license-info) in effect on the date of
+   publication of this document.  Please review these documents
+   carefully, as they describe your rights and restrictions with respect
+   to this document.  Code Components extracted from this document must
+   include Revised BSD License text as described in Section 4.e of the
+   Trust Legal Provisions and are provided without warranty as described
+   in the Revised BSD License.
+
+Table of Contents
+
+   1.  Introduction
+   2.  Terminology
+     2.1.  Requirements Language
+     2.2.  Terminology from Relevant RFCs
+     2.3.  Abbreviations
+     2.4.  New Terms
+   3.  Overview
+   4.  Amending RFC 4861
+   5.  Extending RFC 7400
+   6.  Amending RFC 6550
+     6.1.  Mandating the ROVR Field
+     6.2.  Updating MOP 3
+     6.3.  New Non-Storing Multicast MOP
+     6.4.  RPL Anycast Operation
+     6.5.  New Registered Address Type Indicator P-Field
+     6.6.  New RPL Target Option P-Field
+   7.  Extending RFC 8505
+     7.1.  Placing the New P-Field in the EARO
+     7.2.  Placing the New P-Field in the EDAR Message
+     7.3.  Registration Extensions
+   8.  Extending RFC 9010
+   9.  Leveraging RFC 8928
+   10. Consistent Uptime Option
+   11. Operational Considerations
+   12. Security Considerations
+   13. Backward Compatibility
+   14. IANA Considerations
+     14.1.  New P-Field Values Registry
+     14.2.  New EDAR Message Flags Registry
+     14.3.  New Address Registration Option Flags
+     14.4.  New RPL Target Option Flags
+     14.5.  New RPL Mode of Operation
+     14.6.  New 6LoWPAN Capability Bit
+     14.7.  New Address Registration Option Status Values
+     14.8.  New IPv6 Neighbor Discovery Option Format
+   15. References
+     15.1.  Normative References
+     15.2.  Informative References
+   Acknowledgments
+   Author's Address
+
+1.  Introduction
+
+   The design of Low-Power and Lossy Networks (LLNs) is generally
+   focused on saving energy, which is the most constrained resource of
+   all.  Other design constraints, such as a limited memory capacity,
+   duty cycling of the LLN devices, and low-power lossy transmissions,
+   derive from that primary concern.  The radio (when both transmitting
+   or simply listening) is a major energy drain, and the LLN protocols
+   must be adapted to allow the nodes to remain sleeping with the radio
+   turned off at most times.
+
+   "RPL: IPv6 Routing Protocol for Low-Power and Lossy Networks"
+   [RFC6550] provides IPv6 [RFC8200] routing services within such
+   constraints.  To save signaling and routing state in constrained
+   networks, the RPL routing is only performed along a Destination-
+   Oriented Directed Acyclic Graph (DODAG) that is optimized to reach a
+   Root node, as opposed to along the shortest path between two peers,
+   which may be a fuzzy concept anyway in a radio LLN.
+
+   This stretches the routes between RPL nodes inside the DODAG for a
+   vastly reduced amount of control traffic and routing state that would
+   be required to operate an any-to-any shortest path protocol.
+   Additionally, broken routes may be fixed lazily and on-demand based
+   on data plane inconsistency discovery, which avoids wasting energy in
+   the proactive repair of unused paths.
+
+   RPL uses Destination Advertisement Object (DAO) messages to establish
+   Downward routes.  DAO messages are an optional feature for
+   applications that require point-to-multipoint (P2MP) or point-to-
+   point (P2P) traffic.  RPL supports two modes of Downward traffic:
+   Storing (fully stateful) or Non-Storing (fully source routed); see
+   Section 9 of [RFC6550].  The mode is signaled in the Mode of
+   Operation (MOP) field in the DODAG Information Object (DIO) messages
+   and applies to the whole RPL Instance.
+
+   Any given RPL Instance is either Storing or Non-Storing.  In both
+   cases, P2P packets travel Up toward a DODAG root then Down to the
+   final destination (unless the destination is on the Upward route).
+   In the Non-Storing case, the packet will travel all the way to a
+   DODAG root before traveling Down.  In the Storing case, the packet
+   may be directed Down towards the destination by a common ancestor of
+   the source and the destination prior to reaching a DODAG root.
+   Section 12 of [RFC6550] details the Storing Mode of Operation with
+   multicast support with source-independent multicast routing in RPL.
+
+   The classical Neighbor Discovery (ND) protocol [RFC4861] [RFC4862]
+   was defined for serial links and shared transit media such as
+   Ethernet at a time when broadcast on those media types was cheap,
+   while memory for neighbor cache was expensive.  It was thus designed
+   as a reactive protocol that relies on caching and multicast
+   operations for the Address Discovery (aka lookup) and Duplicate
+   Address Detection (DAD) of IPv6 unicast addresses.  Those multicast
+   operations typically impact every node on-link when at most one is
+   really targeted.  This is a waste of energy and implies that all
+   nodes are awake to hear the request, which is inconsistent with
+   power-saving (sleeping) modes.
+
+   The original specification for 6LoWPAN ND, "Neighbor Discovery
+   Optimization for IPv6 over Low-Power Wireless Personal Area Networks
+   (6LoWPANs)" [RFC6775], was introduced to avoid the excessive use of
+   multicast messages and enable IPv6 ND for operations over energy-
+   constrained nodes.  [RFC6775] changes the classical IPv6 ND model to
+   proactively establish the Neighbor Cache Entry (NCE) associated to
+   the unicast address of a 6LoWPAN Node (6LN) in one or more 6LoWPAN
+   Routers (6LRs) that serve it.  To that effect, [RFC6775] defines a
+   new Address Registration Option (ARO) that is placed in unicast
+   Neighbor Solicitation (NS) and Neighbor Advertisement (NA) messages
+   between the 6LN and the 6LR.
+
+   "Registration Extensions for IPv6 over Low-Power Wireless Personal
+   Area Network (6LoWPAN) Neighbor Discovery" [RFC8505] updates
+   [RFC6775] so that a generic Address Registration mechanism can be
+   used to access services such as routing and ND proxy and introduces
+   the Extended Address Registration Option (EARO) for that purpose.
+   This provides a routing-agnostic interface for a host to request that
+   the router injects a unicast IPv6 address in the local routing
+   protocol and provides return reachability for that address.
+
+   "Routing for RPL (Routing Protocol for Low-Power and Lossy Networks)
+   Leaves" [RFC9010] provides the router counterpart of the mechanism
+   for a host that implements [RFC8505] to inject its unicast Unique
+   Local Addresses (ULAs) and Global Unicast Addresses (GUAs) in RPL.
+   Although RPL also provides multicast routing, 6LoWPAN ND supports
+   only the registration of unicast addresses, and there is no
+   equivalent of [RFC9010] to specify the 6LR behavior upon the
+   subscription of one or more multicast addresses.
+
+   "Multicast Listener Discovery Version 2 (MLDv2) for IPv6" [RFC3810]
+   enables the router to learn which node listens to which multicast
+   address, but as the classical IPv6 ND protocol, MLD relies on
+   multicasting queries to all nodes, which is unfit for low-power
+   operations.  As for IPv6 ND, it makes sense to let the 6LNs control
+   when and how they maintain the state associated to their multicast
+   addresses in the 6LR, e.g., during their own wake time.  In the case
+   of a constrained node that already implements [RFC8505] for unicast
+   reachability, it makes sense to extend that support to subscribe the
+   multicast addresses they listen to.
+
+   This specification Extends [RFC8505] and [RFC9010] by adding the
+   capability for the 6LN to subscribe anycast and multicast addresses
+   and for the 6LR to inject them in RPL when appropriate.  Note that
+   due to the unreliable propagation of packets in the LLN, it cannot be
+   guaranteed that any given packet is delivered once and only once.  If
+   a breakage happens along the preferred parent tree that is normally
+   used for multicast forwarding, the packet going Up may be rerouted to
+   an alternate parent, leading to potential failures and duplications,
+   whereas a packet going Down will not be delivered in the subtree.  It
+   is up to the Upper Layer Protocols (ULPs) to cope with both
+   situations.
+
+2.  Terminology
+
+2.1.  Requirements Language
+
+   The key words "MUST", "MUST NOT", "REQUIRED", "SHALL", "SHALL NOT",
+   "SHOULD", "SHOULD NOT", "RECOMMENDED", "NOT RECOMMENDED", "MAY", and
+   "OPTIONAL" in this document are to be interpreted as described in
+   BCP 14 [RFC2119] [RFC8174] when, and only when, they appear in all
+   capitals, as shown here.
+
+   In addition, "Extends" and "Amends" are used as more specific terms
+   for "Updates" per Section 3 of [UPDATES-TAG] as follows:
+
+   Amends/Amended by:  This tag pair is used with an amending RFC that
+          changes the amended RFC.  This could include bug fixes,
+          behavior changes, etc.  This is intended to specify mandatory
+          changes to the protocol.  The goal of this tag pair is to
+          signal to anyone looking to implement the amended RFC that
+          they MUST also implement the amending RFC.
+
+   Extends/Extended by:  This tag pair is used with an extending RFC
+          that defines an optional addition to the extended RFC.  This
+          can be used by documents that use existing extension points or
+          clarifications that do not change existing protocol behavior.
+          This signals to implementers and protocol designers that there
+          are changes to the extended RFC that they need to consider but
+          not necessarily implement.
+
+2.2.  Terminology from Relevant RFCs
+
+   This document uses terms and concepts that are discussed in:
+
+   *  "Neighbor Discovery for IP version 6 (IPv6)" [RFC4861],
+
+   *  "IPv6 Stateless Address Autoconfiguration" [RFC4862],
+
+   *  "RPL: IPv6 Routing Protocol for Low-Power and Lossy Networks"
+      [RFC6550],
+
+   *  "Neighbor Discovery Optimization for IPv6 over Low-Power Wireless
+      Personal Area Networks (6LoWPANs)" [RFC6775],
+
+   *  "Registration Extensions for IPv6 over Low-Power Wireless Personal
+      Area Network (6LoWPAN) Neighbor Discovery" [RFC8505], and
+
+   *  "Using RPI Option Type, Routing Header for Source Routes, and
+      IPv6-in-IPv6 Encapsulation in the RPL Data Plane" [RFC9008].
+
+2.3.  Abbreviations
+
+   This document uses the following abbreviations:
+
+   6CIO:  Capability Indication Option
+
+   6LBR:  6LoWPAN Border Router
+
+   6LN:   6LoWPAN Node
+
+   6LR:   6LoWPAN Router
+
+   ARO:   Address Registration Option
+
+   DAC:   Duplicate Address Confirmation
+
+   DAD:   Duplicate Address Detection
+
+   DAO:   Destination Advertisement Object
+
+   DAR:   Duplicate Address Request
+
+   DIO:   DODAG Information Object
+
+   DMB:   Direct MAC Broadcast
+
+   DODAG:  Destination-Oriented Directed Acyclic Graph
+
+   EARO:  Extended Address Registration Option
+
+   EDAC:  Extended Duplicate Address Confirmation
+
+   EDAR:  Extended Duplicate Address Request
+
+   IR:    Ingress Replication
+
+   LLN:   Low-Power and Lossy Network
+
+   MLD:   Multicast Listener Discovery
+
+   MOP:   Mode of Operation
+
+   NA:    Neighbor Advertisement
+
+   NCE:   Neighbor Cache Entry
+
+   ND:    Neighbor Discovery
+
+   NS:    Neighbor Solicitation
+
+   RA:    Router Advertisement
+
+   RAN:   RPL-Aware Node
+
+   ROVR:  Registration Ownership Verifier (pronounced "rover")
+
+   RPL:   Routing Protocol for Low-Power and Lossy Networks (pronounced
+          "ripple")
+
+   RS:    Router Solicitation
+
+   RTO:   RPL Target Option
+
+   RUL:   RPL-Unaware Leaf
+
+   TID:   Transaction ID
+
+   TIO:   Transit Information Option
+
+2.4.  New Terms
+
+   This document introduces the following terms:
+
+   Origin:  The node that issued an anycast or multicast advertisement,
+          in the form of either an NS(EARO) or a DAO(TIO, RTO) message.
+
+   Merge/merging:  The action of receiving multiple anycast or multicast
+          advertisements, either internally from self, in the form of an
+          NS(EARO) message, or as a DAO(TIO, RTO) message, and
+          generating a single DAO(TIO, RTO).  The RPL router maintains a
+          state per origin for each advertised address and merges the
+          advertisements for all subscriptions for the same address in a
+          single advertisement.  A RPL router that merges multicast
+          advertisements from different origins becomes the origin of
+          the merged advertisement and uses its own values for the Path
+          Sequence and Registration Ownership Verifier (ROVR) fields.
+
+   Subscribe/subscription:  The special form of registration that
+          leverages NS(EARO) to register (or subscribe to) a multicast
+          or an anycast address.
+
+3.  Overview
+
+   This specification Extends [RFC8505] to provide a registration method
+   (called "subscription" in this case) for anycast and multicast
+   addresses.  The specification inherits the proof of ownership defined
+   in [RFC8928] that already protects the address registration in
+   [RFC8505] to also protect the new subscription mechanism.  [RFC8505]
+   is agnostic to the routing protocol in which the address may be
+   redistributed.
+
+   As opposed to unicast addresses, there might be multiple
+   registrations from multiple parties for the same address.  The router
+   retains one registration per party for each multicast or anycast
+   address but injects the route into the routing protocol only once for
+   each address.  The injection happens asynchronously to the
+   registration.  On the other hand, the validation exchange with the
+   registrar (6LBR) is still needed if the router checks the right for
+   the host to listen to the anycast or multicast address.
+
+   Figure 1 depicts the registration of an anycast or a multicast
+   address.  As shown, the 6LBR receives and accepts multiple EDAR
+   messages for the same address, and the address being registered by
+   multiple nodes is not treated as a duplication.
+
+       6LoWPAN Node           6LR             6LBR
+         (host1)           (router)        (registrar)
+            |                  |               |
+            |   DMB link       |               |
+            |                  |               |
+            |  ND-Classic RS   |               |
+            |----------------->|               |
+            |------------>     |               |
+            |------------------------>         |
+            |  ND-Classic RA   |               |
+            |<-----------------|               |
+            |                  |               |
+            |  NS(EARO)        |               |
+            |----------------->|               |
+            |                  |     EDAR      |
+            |                  |-------------->|
+            |                  |               |
+            |                  |     EDAC      |
+            |                  |<--------------|
+            |        NA(EARO)  |
+            |<-----------------|<inject route> ->
+            |                  |
+                      ...
+         (host2)           (router)           6LBR
+            |  NS(EARO)        |               |
+            |----------------->|               |
+            |                  |               |
+            |                  |     EDAR      |
+            |                  |-------------->|
+            |                  |               |
+            |                  |     EDAC      |
+            |                  |<--------------|
+            |        NA(EARO)  |               |
+            |<-----------------|               |
+                      ...
+         (host1)           (router)
+            |  NS(EARO)        |               |
+            |----------------->|               |
+            |                  |               |
+            |        NA(EARO)  |               |
+            |<-----------------|               |
+                      ...
+            |                  |<maintain route> ->
+                      ...
+
+      Figure 1: Registration Flow for an Anycast or Multicast Address
+
+   In classical networks, [RFC8505] may be used for an ND proxy
+   operation as specified in [RFC8929] or redistributed in a full-
+   fledged routing protocol such as what might be done in BGP for
+   Ethernet VPN [MAC-SIGNALING] or in the Routing in Fat Trees (RIFT)
+   protocol [RIFT].  The device mobility can be gracefully supported as
+   long as the routers can exchange and make sense of the sequence
+   counter in the TID field of the EARO.
+
+   In the case of LLNs, RPL [RFC6550] is the routing protocol of choice
+   and [RFC9010] specifies how the unicast address advertised with
+   [RFC8505] is redistributed in RPL.  This specification also provides
+   RPL extensions for anycast and multicast address operation and
+   redistribution.  In the RPL case, and unless specified otherwise, the
+   behavior is the same as it is for unicast for the 6LBR that acts as
+   RPL Root, the intermediate routers Down the RPL graph, the 6LRs that
+   act as access routers, and the 6LNs that are the RPL-unaware
+   destinations.  In particular, forwarding a packet happens as
+   specified in Section 11 of [RFC6550], including loop avoidance and
+   detection, though in the multicast case, multiple copies might be
+   generated.
+
+   [RFC8505] is a prerequisite to this specification.  A node that
+   implements this MUST also implement [RFC8505].  This specification
+   modifies existing options and updates the associated behaviors to
+   enable the registration for multicast addresses as an extension to
+   [RFC8505].  As with the registration of a unicast address, the
+   subscription to anycast and multicast addresses between a node and
+   its router(s) is agnostic (meaning it is independent) from the
+   routing protocol in which this information may be redistributed or
+   aggregated by the router to other routers.  However, protocol
+   extensions would be needed in the protocol when multicast services
+   are not available.
+
+   This specification also Extends [RFC6550] and [RFC9010] to add
+   multicast ingress replication (IR) in Non-Storing mode and anycast
+   support in both Storing and Non-Storing modes in the case of a route-
+   over multilink subnet based on the RPL routing protocol.  A 6LR that
+   implements the RPL extensions specified herein MUST also implement
+   [RFC9010].
+
+   Figure 2 illustrates the typical scenario of an LLN as a single IPv6
+   subnet, with a 6LBR that acts as Root for RPL operations and
+   maintains a registry of the active registrations as an abstract data
+   structure called an "Address Registrar" for 6LoWPAN ND.
+
+   The LLN may be a hub-and-spoke access link such as (Low-Power) Wi-Fi
+   [IEEE-802.11] and (Low-Energy) Bluetooth [IEEE-802.15.1] or a Route-
+   Over LLN such as the Wi-SUN [Wi-SUN] and IPv6 over the TSCH mode of
+   IEEE 802.15.4 (6TiSCH) [RFC9030] meshes that leverage 6LoWPAN
+   [RFC4919] [RFC6282] and RPL [RFC6550] over IEEE 802.15.4
+   [IEEE-802.15.4].
+
+                     |
+         ----+-------+------------
+             |     Wire side
+          +------+
+          | 6LBR |
+          |(Root)|
+          +------+
+          o  o  o  Wireless side
+      o   o o   o  o o
+     o  o  o o   o  o  o
+    o  o  o   LLN  o   +---+
+      o  o   o  o   o  |6LR|
+      o o  o o   o     +---+
+       o   o   o o o  o    z
+      o  o oo o  o        +---+
+             o            |6LN|
+                          +---+
+
+                          Figure 2: Wireless Mesh
+
+   A leaf acting as a 6LN registers its unicast addresses to a RPL
+   router acting as a 6LR using a Layer 2 unicast NS message with an
+   EARO as specified in [RFC8505].  The registration state is
+   periodically renewed by the Registering Node before the lifetime
+   indicated in the EARO expires.  As for unicast IPv6 addresses, the
+   6LR uses an EDAR and then an EDAC exchange with the 6LBR to notify
+   the 6LBR of the presence of the listeners.
+
+   This specification updates the EARO with a new 2-bit field, the
+   P-Field, as detailed in Section 7.1.  The existing R flag that
+   requests reachability for the Registered Address gets new behavior.
+   With this extension, the 6LNs can now subscribe to the anycast and
+   multicast addresses they listen to, using a new P-Field in the EARO
+   to signal that the registration is for a multicast address.  Multiple
+   6LNs may subscribe the same multicast address to the same 6LR.  Note
+   the use of the term "subscribe": this means that when using the EARO
+   registration mechanism, a node registers the unicast addresses that
+   it owns but subscribes to the multicast addresses that it listens to.
+
+   With this specification, the 6LNs can also subscribe the anycast
+   addresses they accept using a new P-Field in the EARO to signal that
+   the registration is for an anycast address.  For multicast addresses,
+   multiple 6LNs may subscribe the same anycast address to the same 6LR.
+
+   If the R flag is set in the subscription of one or more 6LNs for the
+   same address, the 6LR injects the anycast addresses and multicast
+   addresses of a scope larger than the link-scope in RPL, based on the
+   longest subscription lifetime across the active subscriptions for the
+   address.
+
+   In the RPL Storing Mode of Operation with multicast support
+   (Section 12 of [RFC6550]), the DAO messages for the multicast address
+   percolate along the RPL-preferred parent tree and mark a subtree that
+   becomes the multicast tree for that multicast address, with 6LNs that
+   subscribed to the address as the leaves.  As prescribed in Section 12
+   of [RFC6550], the 6LR forwards a multicast packet as an individual
+   unicast Medium Access Control (MAC) frame to each peer along the
+   multicast tree, except to the node it received the packet from.
+
+   In the new RPL Non-Storing Mode of Operation with ingress replication
+   multicast support that is introduced here, the DAO messages announce
+   the multicast addresses as Targets, and never as Transits.  The
+   multicast distribution is an IR whereby the Root encapsulates the
+   multicast packets to all the 6LRs that are transit for the multicast
+   address, using the same source-routing header as for unicast targets
+   attached to the respective 6LRs.
+
+   LLN links are typically Direct MAC Broadcast (DMB) (see more in
+   [IPv6-OVER-WIRELESS]) with no emulation to increase range (over
+   multiple radio hops) or reliability.  In such links, broadcasting is
+   unreliable and asynchronous transmissions force a listener to remain
+   awake, so asynchronous broadcasting is generally inefficient.  Thus,
+   the expectation is that whenever possible, the 6LRs deliver the
+   multicast packets as individual unicast MAC frames to each of the
+   6LNs that subscribed to the multicast address.  On the other hand, in
+   a network where nodes do not sleep, asynchronous broadcasting may
+   still help recovering faster when state is lost.
+
+   With this specification, anycast addresses can be injected in RPL in
+   both Storing and Non-Storing modes.  In Storing mode, the RPL router
+   accepts DAO messages from multiple children for the same anycast
+   address, but it only forwards a packet to one of the children.  In
+   Non-Storing mode, the Root maintains the list of all the RPL nodes
+   that announced the anycast address as Target, but it forwards a given
+   packet to only one of them.
+
+   Operationally speaking, deploying a new MOP means that one cannot
+   update a live network.  The network administrator must create a new
+   instance with MOP 5 and migrate nodes to that instance by allowing
+   them to join it.
+
+   For backward compatibility, this specification allows building a
+   single DODAG signaled as MOP 1 that conveys anycast, unicast, and
+   multicast packets using the same source-routing mechanism; see more
+   in Section 11.
+
+   It is also possible to leverage this specification between the 6LN
+   and the 6LR for the registration of unicast, anycast, and multicast
+   IPv6 addresses in networks that are not necessarily LLNs and/or where
+   the routing protocol between the 6LR and its peer routers is not
+   necessarily RPL.  In that case, the distribution of packets between
+   the 6LR and the 6LNs may effectively rely on a broadcast or multicast
+   support at the lower layer (e.g., using this specification as a
+   replacement to MLD in an Ethernet-bridged domain and still using
+   either a plain MAC-layer broadcast or snooping of this protocol to
+   control the flooding).  It may also rely on overlay services to
+   optimize the impact of Broadcast, Unknown, and Multicast (BUM)
+   traffic over a fabric, e.g., registering with [MAC-SIGNALING] and
+   forwarding with [RFC9574].
+
+   For instance, it is possible to operate a RPL Instance in the new
+   Non-Storing Mode of Operation with ingress replication multicast
+   support (while possibly signaling a MOP of 1) and use "Multicast
+   Protocol for Low-Power and Lossy Networks (MPL)" [RFC7731] for the
+   multicast operation.  MPL floods the DODAG with the multicast
+   messages independently of the RPL DODAG topologies.  Two variations
+   are possible:
+
+   *  In one possible variation, all the 6LNs set the R flag in the EARO
+      for a multicast target, upon which the 6LRs send a unicast DAO
+      message to the Root; the Root filters out the multicast messages
+      for which there is no listener and only floods when a listener
+      exists.
+
+   *  In a simpler variation, the 6LNs do not set the R flag and the
+      Root floods all the multicast packets over the whole DODAG.  Using
+      a configuration mechanism, it is also possible to control the
+      behavior of the 6LR to ignore the R flag.  It can be configured to
+      either always or never send the DAO message and/or to control the
+      Root and specify which groups it should flood or not flood.
+
+   Note that if the configuration instructs the 6LR not to send the DAO
+   message, then MPL can be used in conjunction with the RPL Storing
+   mode as well.
+
+4.  Amending RFC 4861
+
+   Section 7.1 of [RFC4861] requires silently discarding NS and NA
+   packets when the Target Address is a multicast address.  This
+   specification Amends [RFC4861] by allowing the advertisement of
+   multicast and anycast addresses in the Target Address field when the
+   NS message is used for a registration, per Section 5.5 of [RFC8505].
+
+5.  Extending RFC 7400
+
+   This specification Extends "6LoWPAN-GHC: Generic Header Compression
+   for IPv6 over Low-Power Wireless Personal Area Networks (6LoWPANs)"
+   [RFC7400] by defining a new capability bit for use in the 6CIO.
+   [RFC7400] was already extended by [RFC8505] for use in IPv6 ND
+   messages.
+
+   The new "Registration for Unicast, Multicast, and Anycast Addresses
+   Supported" X flag indicates to the 6LN that the 6LR accepts unicast,
+   multicast, and anycast address registrations as specified in this
+   document and will ensure that packets for the Registered Address will
+   be routed to the 6LNs that registered with the R flag set
+   appropriately.
+
+   Figure 3 illustrates the X flag in its position (8, counting 0 to 15
+   in network order in the 16-bit array); see Section 14.6 for the IANA
+   registration of capability bits.
+
+
+       0                   1                   2                   3
+       0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
+      +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+      |     Type      |   Length = 1  |    Reserved   |X|A|D|L|B|P|E|G|
+      +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+      |                           Reserved                            |
+      +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+
+                 Figure 3: New Capability Bits in the 6CIO
+
+   New Option Field:
+
+   X:  This is a 1-bit flag for "Registration for Unicast, Multicast,
+      and Anycast Addresses Supported".
+
+6.  Amending RFC 6550
+
+   This specification Amends [RFC6550] to mandate the use of the ROVR
+   field as the indication of the origin of a Target advertisement in
+   RPL DAO messages, as specified as an option in Section 6.1 of
+   [RFC9010].
+
+   This specification Extends [RFC6550] with a new P-Field in the RPL
+   Target Option (RTO).
+
+   The specification also Amends the behaviors of the Modes of Operation
+   MOP 1 and MOP 3 and Extends [RFC6550] with a new MOP 5.
+
+6.1.  Mandating the ROVR Field
+
+   For anycast and multicast advertisements (in NS or DAO messages),
+   multiple origins may subscribe to the same address, in which case the
+   multiple advertisements from the different or unknown origins are
+   merged by the common parent; in that case, the common parent becomes
+   the origin of the merged advertisements and uses its own ROVR value.
+   On the other hand, a parent that propagates an advertisement from a
+   single origin uses the original ROVR in the propagated RTO, as it
+   does for unicast address advertisements, so the origin is recognized
+   across multiple hops.
+
+   [RFC6550] uses the Path Sequence in the Transit Information Option
+   (TIO) to retain only the freshest unicast route and remove the stale
+   ones, e.g., in the case of mobility.  [RFC9010] copies the
+   Transaction ID (TID) from the EARO into the Path Sequence and the
+   ROVR field into the associated RTO.  This way, it is possible to
+   identify both the Registering Node and the order of registration in
+   RPL for each individual advertisement, so the most recent path and
+   lifetime values are used.
+
+   This specification Extends [RFC6550] for anycast and multicast
+   advertisements to require that the Path Sequence be used between, and
+   only between, advertisements for the same Target and from the same
+   origin (i.e., with the same ROVR value).  In that case, only the
+   freshest advertisement is retained, but the freshness comparison
+   cannot apply if the origin is not determined (i.e., the origin did
+   not support this specification).
+
+   [RFC6550] uses the Path Lifetime in the TIO to indicate the remaining
+   time for which the advertisement is valid for unicast route
+   determination, and a Path Lifetime value of 0 invalidates that route.
+   [RFC9010] maps the Address Registration lifetime in the EARO and the
+   Path Lifetime in the TIO so they are comparable when both forms of
+   advertisements are received.
+
+   The RPL router that merges multiple advertisements for the same
+   anycast or multicast addresses MUST use and advertise the longest
+   remaining lifetime across all the origins of the advertisements for
+   that address.  When the lifetime expires, the router sends a no-path
+   DAO message (i.e., the lifetime is 0) using the same value for the
+   ROVR value as for the previous advertisements.  This value refers to
+   either the single descendant that advertised the Target if there is
+   only one or the router itself if there is more than one.
+
+   Note that the Registration Lifetime, TID, and ROVR fields are also
+   placed in the EDAR message so the state created by the EDAR is also
+   comparable with that created upon an NS(EARO) or a DAO message.  For
+   simplicity, the text below mentions only NS(EARO) but it also applies
+   to EDAR.
+
+6.2.  Updating MOP 3
+
+   RPL supports multicast operations in the Storing Mode of Operation
+   with multicast support (MOP 3), which provides source-independent
+   multicast routing in RPL, as prescribed in Section 12 of [RFC6550].
+   MOP 3 is a Storing Mode of Operation.  This operation builds a
+   multicast tree within the RPL DODAG for each multicast address.  This
+   specification provides additional details for the MOP 3.
+
+   The expectation in MOP 3 is that the unicast traffic also follows the
+   Storing Mode of Operation.  However, this is rarely the case in LLN
+   deployments of RPL where the Non-Storing Mode of Operation (MOP 1) is
+   the norm.  Though it is preferred to build separate RPL Instances,
+   one in MOP 1 and one in MOP 3, this specification allows hybrid use
+   of the Storing mode for multicast and the Non-Storing mode for
+   unicast in the same RPL Instance, as is elaborated in more detail in
+   Section 11.
+
+   For anycast and multicast advertisements, including MOP 3, the ROVR
+   field is placed in the RTO as specified in [RFC9010] for both MOP 3
+   and MOP 5 as it is for unicast advertisements.
+
+   Though it was implicit with [RFC6550], this specification clarifies
+   that the freshness comparison based on the Path Sequence is not used
+   when the origin cannot be determined, which occurs in the case of
+   multiple subscriptions of a multicast or unicast address.  The
+   comparison is to be used only between advertisements from the same
+   origin, which is either an individual subscriber or a descendant that
+   merged multiple advertisements.
+
+   A RPL router maintains a remaining Path Lifetime for each DAO message
+   that it receives for a multicast target and sends its own DAO message
+   for that target with the longest remaining lifetime across its
+   listening children.  If the router has only one descendant listening,
+   it propagates the TID and ROVR as received.  Conversely, if the
+   router merges multiple advertisements (possibly including one for
+   itself as a listener), the router uses its own ROVR and TID values.
+   This implies a possible transition of ROVR and TID values when the
+   number of listening children changes from one to more or back to one,
+   which should not be considered as an error or a change of ownership
+   by the parents above.
+
+6.3.  New Non-Storing Multicast MOP
+
+   This specification adds a Non-Storing Mode of Operation with ingress
+   replication multicast support RPL (as assigned by IANA; see
+   Section 14.5) whereby the Non-Storing Mode DAO to the Root may
+   advertise a multicast address in the RTO, whereas the TIO cannot.
+
+   In that mode, the RPL Root performs an IR operation on the multicast
+   packets.  This means that it transmits one copy of each multicast
+   packet to each 6LR that is a transit for the multicast target, using
+   the same source-routing header and encapsulation as it would for a
+   unicast packet for a RPL-Unaware Leaf (RUL) attached to that 6LR.
+
+   For the intermediate routers, the packet appears as any source-routed
+   unicast packet.  The difference shows only at the 6LR, which
+   terminates the source-routed path and forwards the multicast packet
+   to all 6LNs that registered for the multicast address.
+
+   For a packet that is generated by the Root, the Root builds a source-
+   routing header as shown in Section 8.1.3 of [RFC9008], but for which
+   the last and only the last address is multicast.  For a packet that
+   is not generated by the Root, the Root encapsulates the multicast
+   packet as per Section 8.2.4 of [RFC9008].  In that case, the outer
+   header is purely unicast, and the encapsulated packet is purely
+   multicast.
+
+   For anycast and multicast advertisements in NA messages (at the 6LR)
+   and DAO messages (at the Root), as discussed in Section 6.2, the
+   freshness comparison based on the TID field is applied only between
+   messages from the same origin, as determined by the same value in the
+   ROVR field.
+
+   The Root maintains a remaining Path Lifetime for each advertisement
+   it receives, and a 6LR generates the DAO message for multicast
+   addresses with the longest remaining lifetime across its registered
+   6LNs, using its own ROVR and TID when multiple 6LNs have subscribed
+   or when the 6LR is a subscriber.
+
+   This specification allows enabling the operation in a MOP 1 brown
+   field for this new mode as well; see more in Section 11.
+
+6.4.  RPL Anycast Operation
+
+   With multicast, the address has a recognizable format, and a
+   multicast packet is to be delivered to all the active subscribers.
+   In contrast, the format of an anycast address is not distinguishable
+   from that of a unicast address.  A legacy node may issue a DAO
+   message without setting the P-Field to 2; the unicast behavior may
+   apply to anycast traffic within a portion of the network, but the
+   packets will still be delivered.  That message will be
+   undistinguishable from a unicast advertisement, and the anycast
+   behavior in the data plane can only happen if all the nodes that
+   advertise the same anycast address are synchronized with the same
+   TID.  That way, the multiple paths can remain in the RPL DODAG.
+
+   With the P-Field set to 2, this specification alleviates the issue of
+   synchronizing the TIDs and ROVR fields.  As for multicast, the
+   freshness comparison based on the TID (in the EARO) and the Path
+   Sequence (in the TIO) is ignored unless the messages have the same
+   origin; this is inferred by the same ROVR in the RTO and/or the EARO,
+   and the latest value of the lifetime is retained for each origin.
+
+   A RPL router that propagates an advertisement from a single origin
+   uses the ROVR and Path Sequence from that origin, whereas a router
+   that merges multiple subscriptions uses its own ROVR and Path
+   Sequence and the longest lifetime over the different advertisements.
+   A target is routed as anycast by a parent (or the Root) that received
+   at least one DAO message for that target with the P-Field set to 2.
+
+   As opposed to multicast, the anycast operation described herein
+   applies to both addresses and prefixes, and the P-Field can be set to
+   2 for both.  An external destination (such as an address or prefix)
+   that may be injected as a RPL Target from multiple border routers
+   should be injected as anycast in RPL to enable load balancing.  In
+   contrast, a mobile target that is multihomed should be advertised as
+   unicast over the multiple interfaces to favor the TID comparison
+   instead of multipath load balancing.
+
+   For either multicast or anycast, there can be multiple subscriptions
+   from multiple origins, each using a different value of the ROVR field
+   that identifies the individual subscription.  The 6LR maintains a
+   subscription state per value of the ROVR for each multicast or
+   anycast address, but it injects the route into RPL only once for each
+   address.  In the case of a multicast address, this occurs only if its
+   scope is larger than the link-scope (three or more).  Since the
+   subscriptions are considered separate, the check on the TID that acts
+   as the subscription sequence only applies to the subscription with
+   the same ROVR.
+
+   Like the 6LR, a RPL router in Storing mode propagates the merged
+   advertisement to its parent(s) in DAO messages once and only once for
+   each address, but it retains a routing table entry for each of the
+   children that advertised the address.
+
+   When forwarding multicast packets Down the DODAG, the RPL router
+   copies all the children that advertised the address in their DAO
+   messages.  In contrast, when forwarding anycast packets Down the
+   DODAG, the RPL router MUST copy one and only one of the children that
+   advertised the address in their DAO messages and forward it to one
+   parent if there is no such child.
+
+6.5.  New Registered Address Type Indicator P-Field
+
+   The new Registered Address Type Indicator (RATInd) is created for use
+   in the RTO, the EARO, and the header of EDAR messages.  The RATInd
+   indicates whether an address is unicast, multicast, or anycast.  The
+   new 2-bit P-Field is defined to transport the RATInd in different
+   protocols.
+
+   The P-Field can take the values shown in Table 2.
+
+   The intent for the value of 3 is a prefix registration (see
+   [REGISTRATION]), which is expected to be published after this
+   specification.  At the time of this writing, RPL already advertises
+   prefixes, and treats unicast addresses as prefixes with a length of
+   128, so it does not need that new value.  On the other hand, 6LoWPAN
+   ND does not, so the value of 3 (meaning prefix registration) will not
+   be processed adequately.  As a result:
+
+   *  When the value of 3 is received in an RTO (see Section 6.6), this
+      value MUST be ignored by the receiver (meaning it is treated as a
+      value of 0) but the message is processed normally (as per
+      [RFC6550] and [RFC9010]).
+
+   *  In the case of an EARO (see Section 7.1) or an EDAR (see
+      Section 7.2), the message MUST be dropped, and the receiving node
+      MAY either reply with a status of 12 "Invalid Registration" or
+      remain silent.
+
+6.6.  New RPL Target Option P-Field
+
+   [RFC6550] recognizes a multicast address by its format (as specified
+   in Section 2.7 of [RFC4291]) and applies the specified multicast
+   operation if the address is recognized as multicast.  This
+   specification updates [RFC6550] to add the 2-bit P-Field (see
+   Section 6.5) to the RTO to indicate that the Target Address is to be
+   processed as unicast, multicast, or anycast.
+
+   *  An RTO that has the P-Field set to 0 is called a unicast RTO.
+
+   *  An RTO that has the P-Field set to 1 is called a multicast RTO.
+
+   *  An RTO that has the P-Field set to 2 is called an anycast RTO.
+
+   The suggested position for the P-Field is 2 counting from 0 to 7 in
+   network order as shown in Figure 4, based on Figure 4 of [RFC9010],
+   which defines the flags in positions 0 and 1:
+
+      0                   1                   2                   3
+      0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
+     +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+     |   Type = 0x05 | Option Length |F|X| P |ROVRsz | Prefix Length |
+     +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+     |                                                               |
+     |                Target Prefix (Variable Length)                |
+     .                                                               .
+     +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+     |                                                               |
+    ...            Registration Ownership Verifier (ROVR)           ...
+     |                                                               |
+     +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+
+              Figure 4: Format of the RPL Target Option (RTO)
+
+   New and updated Option Field:
+
+   P:  This is a 2-bit field; see Section 6.5.
+
+7.  Extending RFC 8505
+
+   This specification Extends [RFC8505] by adding the concept of a
+   subscription for anycast and multicast addresses and creating a new
+   field called the P-Field in the EARO and in the EDAR and EDAC
+   messages to signal the type of registration.
+
+7.1.  Placing the New P-Field in the EARO
+
+   Section 4.1 of [RFC8505] defines the EARO as an extension to the ARO
+   defined in [RFC6775].  This specification adds a new P-Field that is
+   placed in the EARO flags and is set as follows:
+
+   *  The P-Field is set to 1 to signal that the Registered Address is a
+      multicast address.  When the P-Field is 1 and the R flag is set to
+      1 as well, the 6LR that conforms to this specification joins the
+      multicast stream (e.g., by injecting the address in the RPL
+      multicast support that is extended in this specification for the
+      Non-Storing mode).
+
+   *  The P-Field is set to 2 to signal that the Registered Address is
+      an anycast address.  When the P-Field is 2 and the R flag is 1,
+      the 6LR that conforms to this specification injects the anycast
+      address in the routing protocol(s) that it participates in (e.g.,
+      in the RPL anycast support that is introduced in this
+      specification for both the Storing and Non-Storing modes).
+
+   Figure 5 illustrates the P-Field in its position (2, counting 0 to 7
+   in network order in the 8-bit array); see Section 14.1 for the IANA
+   registration of P-Field values.
+
+      0                   1                   2                   3
+      0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
+     +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+     |     Type      |     Length    |    Status     |    Opaque     |
+     +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+     |Rsv| P | I |R|T|     TID       |     Registration Lifetime     |
+     +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+     |                                                               |
+    ...          Registration Ownership Verifier (ROVR)              ...
+     |                                                               |
+     +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+
+        Figure 5: Extended Address Registration Option (EARO) Format
+
+   New and updated Option Fields:
+
+   Rsv:  This is a 2-bit field.  It is reserved and MUST be set to 0 and
+      ignored by the receiver.
+
+   P:  This is a 2-bit P-Field; see Section 6.5.
+
+7.2.  Placing the New P-Field in the EDAR Message
+
+   Section 4 of [RFC6775] provides the same format for DAR and DAC
+   messages but the Status field is only used in DAC messages and has to
+   be set to 0 in DAR messages.  [RFC8505] extends the DAC message as an
+   EDAC but does not change the Status field in the EDAR.
+
+   This specification repurposes the Status field in the EDAR as a Flags
+   field.  It adds a new P-Field to the EDAR flags field to match the
+   P-Field in the EARO and signal the new types of registration.  The
+   EDAC message is not modified.
+
+   Figure 6 illustrates the P-Field in its position (0, counting 0 to 7
+   in network order in the 8-bit array); see Section 14.2 for the IANA
+   registration of EDAR message flags.
+
+      0                   1                   2                   3
+      0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
+     +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+     |     Type      |CodePfx|CodeSfx|          Checksum             |
+     +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+     | P | Reserved  |     TID       |     Registration Lifetime     |
+     +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+     |                                                               |
+    ...            Registration Ownership Verifier (ROVR)           ...
+     |                                                               |
+     +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+     |                                                               |
+     +                                                               +
+     |                                                               |
+     +                       Registered Address                      +
+     |                                                               |
+     +                                                               +
+     |                                                               |
+     +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+
+     Figure 6: Extended Duplicate Address Request (EDAR) Message Format
+
+   New and updated Option Fields:
+
+   Reserved:  This is a 6-bit field.  It is reserved and MUST be set to
+      0 and ignored by the receiver.
+
+   P:  This is a 2-bit field; see Section 6.5.
+
+7.3.  Registration Extensions
+
+   [RFC8505] specifies the following behaviors:
+
+   *  A router that expects to reboot may send a final RA message, upon
+      which nodes should subscribe elsewhere or redo the subscription to
+      the same router upon reboot.  In all other cases, a node reboot is
+      silent.  When the node comes back to life, existing registration
+      state might be lost if it was not persisted, e.g., in persistent
+      memory.
+
+   *  The registration method is specified only for unicast addresses.
+
+   *  The 6LN must register all its ULAs and GUAs with an NS(EARO)
+      message.
+
+   *  The 6LN may set the R flag in the EARO to obtain return
+      reachability services by the 6LR, e.g., through ND proxy
+      operations or by injecting the route in a route-over subnet.
+
+   *  the 6LR maintains a registration state per Registered Address,
+      including an NCE with the Link-Layer Address (LLA) of the
+      Registered Node (the 6LN here).
+
+   This specification Amends the above behaviors and Extends them with
+   the following behaviors:
+
+   *  The concept of subscription is introduced for anycast and
+      multicast addresses as an extension to the registration of a
+      unicast address.  The respective operations are similar from the
+      perspective of the 6LN, but they show important differences on the
+      router side, which maintains a separate state for each origin and
+      merges them in its own advertisements.
+
+   *  New ARO Statuses are introduced to indicate a "Registration
+      Refresh Request" and an "Invalid Registration" (see Table 8).
+
+      The former status is used in asynchronous NA(EARO) messages to
+      indicate to peer 6LNs that they are requested to reregister all
+      addresses that were previously registered to the originating node.
+      The NA message may be sent to a unicast or a multicast link-scope
+      address and should be contained within the L2 range where nodes
+      may have effectively registered or, respectively, subscribed to
+      this router (e.g., a radio broadcast domain).  The latter is
+      generic to any error in the EARO and is used, for example, to
+      report that the P-Field is not consistent with the Registered
+      Address in NS(EARO) and EDAR messages.
+
+      A router that wishes to refresh its state (e.g., upon reboot or in
+      any situation where it may have missed a registration or lost a
+      registration state) SHOULD send an asynchronous NA(EARO) with this
+      new status value.  Failure to do so will delay the recovery of the
+      network until the next periodic registration by the attached 6LNs
+      and packets may be lost until then.  That asynchronous multicast
+      NA(EARO) MUST be sent to the all-nodes link-scope multicast
+      address (ff02::1), and the Target MUST be set to the link-local
+      address that was exposed previously by this node to accept
+      registrations.
+
+      The TID field in the multicast NA(EARO) message is the one
+      associated to the Target and follows the same rules as the TID in
+      the NS(EARO) message for the same Target; see Section 5.2 of
+      [RFC8505], which points to Section 7.2 of [RFC6550] for the
+      lollipop mechanism used in the TID operation.  It is incremented
+      by the sender each time it sends a new series of NS and/or NA
+      messages with the EARO about the Target.  The TID indicates a
+      reboot when it is in the "straight" part of the lollipop, between
+      the initial value and 255.  After that, the TID remains below 128
+      as long as the device is alive.  An asynchronous multicast
+      NA(EARO) with a TID below 128 MUST NOT be considered as indicating
+      a reboot.
+
+      The asynchronous multicast NA(EARO) indicating a "Registration
+      Refresh Request" MAY be reissued a few times within a short
+      period, to increase the chances that the message is received by
+      all registered nodes despite the unreliable transmissions within
+      the LLN; the TID MUST be incremented each time.  The receiver 6LN
+      MUST consider that multiple NA(EARO) messages indicating a
+      "Registration Refresh Request" from the same 6LR received within
+      that short period with comparable and increasing TID values (i.e.,
+      their absolute difference is less than the SEQUENCE_WINDOW; see
+      Section 7.2 of [RFC6550]) are in fact indicative of the same
+      request.  The 6LN MUST process one and only one of the series of
+      messages.  If the TIDs are desynchronized (not comparable) or
+      decreased, then the NA(EARO) is considered as a new request and it
+      MUST be processed.
+
+      The multicast NA(EARO) SHOULD be resent enough times for the TID
+      to be issued with the value of 255 so the next NA(EARO) after the
+      initial series is outside the lollipop and is not confused with a
+      reboot.  By default, the TID initial setting after boot is 252,
+      the SEQUENCE_WINDOW is 4, the duration of the short period is 10
+      seconds, the interval between retries is 1 second, and the number
+      of retries is 3.  To reach 255 at boot time, the sender MAY either
+      issue at least 4 NA messages, skip a TID value, or start with a
+      value that is more than 252.  The best values for the short
+      period, the number of retries, and the TID initial setting depend
+      on the environment and SHOULD be configurable.
+
+   *  A new IPv6 ND Consistent Uptime Option (CUO) is introduced to be
+      placed in IPv6 ND messages.  The CUO allows figuring out the state
+      consistency between the sender and the receiver.  For instance, a
+      node that rebooted needs to reset its uptime to 0.  A router that
+      changed information like a prefix information option has to
+      advertise an incremented state sequence.  To that effect, the CUO
+      carries a Node State Sequence Information (NSSI) and a Consistent
+      Uptime.  See Section 10 for the option details.
+
+      A node that receives the CUO checks whether it is indicative of a
+      desynchronization between peers.  A peer that discovers that a
+      router has changed should reassess which addresses it formed based
+      on the new PIOs from that router and resync the state that it
+      installed in the router (e.g., the registration state for its
+      addresses).  In the process, the peer may attempt to:
+
+      -  form new addresses and register them,
+
+      -  deprecate old addresses and deregister them using a Lifetime of
+         0, and
+
+      -  reform any potentially lost state (e.g., by registering again
+         an existing address that it will keep using).
+
+      A loss of state is inferred if the Consistent Uptime of the peer
+      is less than the time since the state was installed, or if the
+      NSSI is incremented for a Consistent Uptime.
+
+   *  Registration for multicast and anycast addresses is now supported.
+      The P-Field is added to the EARO to signal when the Registered
+      Address is anycast or multicast.  The value of the P-Field is not
+      consistent with the Registered Address if:
+
+      -  the Registered Address is a multicast address (Section 2.4 of
+         [RFC4291]) and the P-Field indicates a value that is not 1, or
+
+      -  the Registered Address is not a multicast address and the
+         P-Field indicates a value that is 1.
+
+      If this occurs, then the message, NS(EARO) or EDAR, MUST be
+      dropped, and the receiving node MAY either reply with a status of
+      12 "Invalid Registration" or remain silent.
+
+   *  The Status field in the EDAR message that was reserved and not
+      used in [RFC8505] is repurposed to transport the flags to signal
+      multicast and anycast.
+
+   *  The 6LN MUST also subscribe all the IPv6 multicast addresses that
+      it listens to, and it MUST set the P-Field to 1 in the EARO for
+      those addresses.  The one exception is the all-nodes link-scope
+      multicast address ff02::1 [RFC4291], which is implicitly
+      registered by all nodes, meaning that all nodes are expected to
+      accept messages sent to ff02::1 but are not expected to register
+      it.
+
+   *  The 6LN MAY set the R flag in the EARO to obtain the delivery of
+      the multicast packets by the 6LR (e.g., by MLD proxy operations,
+      or by injecting the address in a route-over subnet or in the
+      Protocol Independent Multicast [RFC7761] protocol).
+
+   *  The 6LN MUST also subscribe all the IPv6 anycast addresses that it
+      supports, and it MUST set the P-Field in the EARO to 2 for those
+      addresses.
+
+   *  The 6LR and the 6LBR are extended to accept more than one
+      subscription for the same address when it is anycast or multicast,
+      since multiple 6LNs may subscribe to the same address of these
+      types.  In both cases, the ROVR in the EARO uniquely identifies a
+      registration within the namespace of the Registered Address.
+
+   *  The 6LR MUST also consider that all the nodes that registered an
+      address to it (as known by the Source Link-Layer Address Option
+      (SLLAO)) also registered ff02::1 [RFC4291] to the all-nodes link-
+      scope multicast address.
+
+   *  The 6LR MUST maintain a subscription state per tuple (IPv6
+      address, ROVR) for both anycast and multicast types of addresses.
+      It SHOULD notify the 6LBR with an EDAR message, unless it
+      determined that the 6LBR is legacy and does not support this
+      specification.  In turn, the 6LBR MUST maintain a subscription
+      state per tuple (IPv6 address, ROVR) for both anycast and
+      multicast types of address.
+
+8.  Extending RFC 9010
+
+   [RFC9010] specifies the following behaviors:
+
+   *  The 6LR has no specified procedure to inject multicast and anycast
+      routes in RPL even though RPL supports multicast.
+
+   *  Upon a registration with the R flag set to 1 in the EARO, the 6LR
+      injects the address in the RPL unicast support.
+
+   *  Upon receiving a packet directed to a unicast address for which it
+      has an active registration, the 6LR delivers the packet as a
+      unicast Layer 2 frame to the LLA of the node that registered the
+      unicast address.
+
+   This specification Extends [RFC9010] by adding the following
+   behavior:
+
+   *  Upon a subscription with the R flag and the P-Field both set to 1
+      in the EARO, if the scope of the multicast address is above link-
+      scope [RFC7346], then the 6LR injects the address in the RPL
+      multicast support and sets the P-Field in the RTO to 1 as well.
+
+   *  Upon a subscription with the R flag set to 1 and the P-Field set
+      to 2 in the EARO, the 6LR injects the address in the new RPL
+      anycast support and sets the P-Field to 2 in the RTO.
+
+   *  Upon receiving a packet directed to a multicast address for which
+      it has at least one subscription, the 6LR delivers a copy of the
+      packet as a unicast Layer 2 frame to the LLA of each of the nodes
+      that registered to that multicast address.
+
+   *  Upon receiving a packet directed to an anycast address for which
+      it has at least one subscription, the 6LR delivers a copy of the
+      packet as a unicast Layer 2 frame to the LLA of exactly one of the
+      nodes that registered to that multicast address.
+
+9.  Leveraging RFC 8928
+
+   "Address-Protected Neighbor Discovery for Low-Power and Lossy
+   Networks" [RFC8928] was defined to protect the ownership of unicast
+   IPv6 addresses that are registered with [RFC8505].
+
+   With [RFC8928], it is possible for a node to autoconfigure a pair of
+   public and private keys and use them to sign the registration of
+   addresses that are either autoconfigured or obtained through other
+   methods.
+
+   The first hop router (the 6LR) may then validate a registration and
+   perform source address validation on packets coming from the sender
+   node (the 6LN).
+
+   Anycast and multicast addresses are not owned by one node.  Multiple
+   nodes may subscribe to the same address.  In that context, the method
+   specified in [RFC8928] cannot be used with autoconfigured key pairs
+   to protect a single ownership.
+
+   For an anycast or a multicast address, it is still possible to
+   leverage [RFC8928] to enforce the right to subscribe.  If [RFC8928]
+   is used, a key pair MUST be associated with the address before it is
+   deployed, and a ROVR MUST be generated from that key pair as
+   specified in [RFC8928].  The address and the ROVR MUST then be
+   installed in the 6LBR so it can recognize the address and compare the
+   ROVR on the first subscription.
+
+   The key pair MUST then be provisioned in each node that needs to
+   subscribe to the anycast or multicast address, so the node can follow
+   the steps in [RFC8928] to subscribe to the address.
+
+10.  Consistent Uptime Option
+
+   This specification introduces a new option that characterizes the
+   uptime of the sender.  The option may be used by routers in RA
+   messages and by any node in NS, NA, and RS messages.  It is used by
+   the receiver to infer whether some state synchronization might be
+   lost (e.g., due to reboot).
+
+      0                   1                   2                   3
+      0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
+     +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+     |     Type      |     Length    | Exponent  |  Uptime Mantissa  |
+     +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+     |S|U|   flags   |          NSSI         |     Peer NSSI         |
+     +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+
+              Figure 7: Consistent Uptime Option (CUO) Format
+
+   Type:  Assigned by IANA; see Table 9.
+
+   Length:  1
+
+   Uptime Exponent:  A 6-bit unsigned integer and the Exponent to the
+      base 2 of the uptime unit.
+
+   Uptime Mantissa:  A 10-bit unsigned integer and the mantissa of the
+      uptime value.
+
+   S:  A 1-bit flag set to 1 to indicate that the sender is low-power
+      and may sleep.
+
+   U:  A 1-bit flag set to 1 to indicate that the Peer NSSI field is
+      valid; it MUST be set to 0 when the message is not unicast and
+      MUST be set to 1 when the message is unicast and the sender has an
+      NSSI state for the intended receiver.
+
+   flags:  6-bit flags that are reserved and that MUST be set to 0 by
+      the sender and ignored by the receiver.
+
+   NSSI:  A 12-bit unsigned integer that represents the Node State
+      Sequence Information (NSSI).  It MUST be stored by the receiver if
+      it has a dependency on information advertised or stored at the
+      sender.
+
+   Peer NSSI:  A 12-bit unsigned integer that echoes the last known NSSI
+      from the peer.
+
+   The Consistent Uptime indicates how long the sender has been
+   continuously up and running (though possibly sleeping) without loss
+   of state.  It is expressed by the Uptime Mantissa in units of 2 to
+   the power of the Uptime Exponent in milliseconds.  The receiver
+   derives the boot time of the sender as the current time minus the
+   sender's Consistent Uptime.
+
+   If the boot time of the sender is updated to a newer time, any state
+   that the receiver installed in the sender before the reboot is
+   probably lost.  The receiver MUST reassess all the state it installed
+   in the server (e.g., any registration) and reinstall if it is still
+   needed.
+
+   The U flag not set in a unicast message indicates that the sender has
+   lost all state from this node.  If the U flag is set, then the Peer
+   NSSI field can be used to assess which changes the sender missed.
+   For the other way around, any state that was installed in the
+   receiver from information by the sender before it rebooted MUST be
+   removed and may or may not be reinstalled later.
+
+   The value of the uptime is reset to 0 at some point of the sender's
+   reboot sequence, but it may not still be 0 when the first message is
+   sent, so the receiver must not expect a value of 0 as the signal of a
+   reboot.
+
+               +----------+----------+------------+--------+
+               | Mantissa | Exponent | Resolution | Uptime |
+               +----------+----------+------------+--------+
+               | 1        | 0        | 1 ms       | 1 ms   |
+               +----------+----------+------------+--------+
+               | 5        | 10       | 1 s        | 5 s    |
+               +----------+----------+------------+--------+
+               | 2        | 15       | 30 s       | 1 min  |
+               +----------+----------+------------+--------+
+               | 2        | 21       | 33 min     | 1 hour |
+               +----------+----------+------------+--------+
+
+                  Table 1: Consistent Uptime Rough Values
+
+   The NSSI SHOULD be stored in persistent memory by the sender and
+   incremented when it may have missed or lost state about a peer, or
+   when it has updated some state in a fashion that will impact a peer
+   (e.g., a host formed a new address or a router advertises a new
+   prefix).  When persisting is not possible, then the NSSI is randomly
+   generated.
+
+   As long as the NSSI remains constant, the cross-dependent state (such
+   as addresses in a host that depend on a prefix in a router) can
+   remain stable, meaning less checks in the receiver.  Any change in
+   the value of the NSSI is an indication that the sender updated some
+   state and that the dependent state in the receiver should be
+   reassessed (e.g., addresses that were formed based on an RA with a
+   previous NSSI should be checked, or new addresses may be formed and
+   registered).
+
+11.  Operational Considerations
+
+   With this specification, a RPL DODAG forms a realm, and multiple RPL
+   DODAGs may be federated in a single RPL Instance administratively.
+   This means that a multicast address that needs to span a RPL DODAG
+   MUST use a scope of Realm-Local whereas a multicast address that
+   needs to span a RPL Instance MUST use a scope of Admin-Local as
+   discussed in Section 3 of [RFC7346], "IPv6 Multicast Address Scopes".
+
+   "IPv6 Addressing of IPv4/IPv6 Translators" [RFC6052] enables
+   embedding IPv4 addresses in IPv6 addresses.  The Root of a DODAG may
+   leverage that technique to translate IPv4 traffic in IPv6 and route
+   along the RPL domain.  When encapsulating a packet with an IPv4
+   multicast Destination Address, it MUST use a multicast address with
+   the appropriate scope, Realm-Local or Admin-Local.
+
+   "Unicast-Prefix-based IPv6 Multicast Addresses" [RFC3306] enables
+   forming 2^32 multicast addresses from a single /64 prefix.  If an
+   IPv6 prefix is associated to an Instance or a RPL DODAG, this
+   provides a namespace that can be used in any desired fashion.  For
+   instance, it is possible for a standard defining organization to form
+   its own registry and allocate 32-bit values from that namespace to
+   network functions or device types.  When used within a RPL deployment
+   that is associated with a /64 prefix, the IPv6 multicast addresses
+   can be automatically derived from the prefix and the 32-bit value for
+   either a Realm-Local or an Admin-Local multicast address as needed in
+   the configuration.
+
+   This specification introduces the new RPL MOP 5.  Operationally
+   speaking, deploying a new RPL MOP means that one cannot update a live
+   network.  The network administrator must create a new instance with
+   MOP 5 and migrate nodes to that instance by allowing them to join it.
+
+   In a "green field" deployment where all nodes support this
+   specification, it is possible to deploy a single RPL Instance using a
+   multicast MOP for unicast, multicast, and anycast addresses.
+
+   In a "brown field" where legacy devices that do not support this
+   specification coexist with upgraded devices, it is RECOMMENDED to
+   deploy one RPL Instance in any MOP (typically MOP 1) for unicast that
+   legacy nodes can join and a separate RPL Instance dedicated to
+   multicast and anycast operations using a multicast MOP.
+
+   To deploy a Storing mode multicast operation using MOP 3 in a RPL
+   domain, it is required that the RPL routers that support MOP 3 have
+   enough density to build a DODAG that covers all the potential
+   listeners and includes the spanning multicast trees that are needed
+   to distribute the multicast flows.  This might not be the case when
+   extending the capabilities of an existing network.
+
+   In the case of the new Non-Storing multicast MOP, arguably the new
+   support is only needed at the 6LRs that will accept multicast
+   listeners.  It is still required that each listener be able to reach
+   at least one such 6LR, so the upgraded 6LRs must be deployed to cover
+   all the 6LNs that need multicast services.
+
+   Using separate RPL Instances for unicast traffic on the one hand and
+   for anycast and multicast traffic on the other hand allows for the
+   use of different objective functions; one favors the link quality Up
+   for unicast collection and the other favors Downwards link quality
+   for multicast distribution.
+
+   However, this might be impractical in some use cases where the
+   signaling and the state to be installed in the devices are very
+   constrained, the upgraded devices are too sparse, or the devices do
+   not support more multiple instances.
+
+   When using a single RPL Instance, MOP 3 expects the Storing Mode of
+   Operation for both unicast and multicast, which is an issue in
+   constrained networks that typically use MOP 1 for unicast.  This
+   specification allows a mixed mode that is signaled as MOP 1 in the
+   DIO messages for backward compatibility, where limited multicast and/
+   or anycast is available, under the following conditions:
+
+   *  There MUST be enough density of the 6LRs that support the mixed
+      mode to cover all the 6LNs that require multicast or anycast
+      services.  In Storing mode, there MUST be enough density of the
+      6LRs that support the mixed mode to also form a DODAG to the Root.
+
+   *  The RPL routers that support the mixed mode are configured to
+      operate in accordance with the desired operation in the network.
+
+   *  The MOP signaled in the RPL DIO messages is MOP 1 to enable the
+      legacy nodes to operate as leaves.
+
+   *  The support of multicast and/or anycast in the RPL Instance SHOULD
+      be signaled by the 6LRs to the 6LN using a 6CIO; see Section 5.
+
+   *  Alternatively, the support of multicast in the RPL domain can be
+      globally known by other means including configuration or external
+      information such as support of a version of an industry standard
+      that mandates it.  In that case, all the routers MUST support the
+      mixed mode.
+
+12.  Security Considerations
+
+   This specification Extends [RFC8505] and [RFC9010] and leverages
+   [RFC9008].  The security sections in these documents also apply to
+   this document.  In particular, the link layer SHOULD be sufficiently
+   protected to prevent rogue access.
+
+   RPL [RFC6550] already supports routing on multicast addresses,
+   whereby the endpoint that subscribes to the group by injecting the
+   multicast address participates as a RPL-Aware Node (RAN) in the RPL.
+   Using an extension of [RFC8505] as opposed to RPL to subscribe the
+   address allows a RPL-Unaware Leaf (RUL) to subscribe as well.  As
+   noted in [RFC9010], this provides a better security posture for the
+   RPL network, since the nodes that do not really need to speak RPL, or
+   are not trusted enough to inject RPL messages, can be forbidden from
+   doing so, which bars a number of attack vectors from within RPL.
+   Acting as an RUL, those nodes may still leverage the RPL network
+   through the capabilities that are opened via ND operations.  With
+   this specification, a node that needs multicast delivery can now
+   obtain the service in a RPL domain while not being allowed to inject
+   RPL messages.
+
+   Compared to [RFC6550], this specification enables tracking the origin
+   of the multicast subscription inside the RPL network.  This is a
+   first step to enable a form of Route Ownership Validation (ROV) (see
+   [RFC6811]) in RPL using the ROVR field in the EARO as proof of
+   ownership.
+
+   Section 9 leverages [RFC8928] to prevent a rogue node from
+   registering a unicast address that it does not own.  The mechanism
+   could be extended to anycast and multicast addresses if the values of
+   the ROVR they use are known in advance, but how this is done is not
+   in scope for this specification.  One way would be to authorize the
+   ROVR of the valid users in advance.  A less preferred way would be to
+   synchronize the ROVR and TID values across the valid subscribers as
+   preshared key material.
+
+   In the latter case, it could be possible to update the keys
+   associated to an address in all the 6LNs, but the flow is not clearly
+   documented and may not complete in due time for all nodes in LLN use
+   cases.  It may be simpler to install an all-new address with new keys
+   over a period of time, and switch the traffic to that address when
+   the migration is complete.
+
+13.  Backward Compatibility
+
+   A legacy 6LN will not subscribe multicast addresses, and the service
+   will be the same when the network is upgraded.  A legacy 6LR will not
+   set the X flag in the 6CIO, and an upgraded 6LN will not subscribe
+   multicast addresses.
+
+   Upon receiving an EDAR message, a legacy 6LBR may not realize that
+   the address being registered is anycast or multicast and will return
+   that it is a duplicate in the EDAC status.  The 6LR MUST ignore a
+   duplicate status in the EDAC for anycast and multicast addresses.
+
+   As detailed in Section 11, it is possible to add multicast on an
+   existing MOP 1 deployment.
+
+   The combination of a multicast address and the P-Field set to 0 in an
+   RTO in a MOP 3 RPL Instance is an indication to the receiver that
+   supports this specification (the parent) that the sender (child) does
+   not support this specification.  However, the RTO is accepted and
+   processed as if the P-Field was set to 1 for backward compatibility.
+
+   When the DODAG is operated in MOP 3, a legacy node will not set the
+   P-Field and still expect multicast service as specified in Section 12
+   of [RFC6550].  In MOP 3, an RTO that is received with a target that
+   is multicast and the P-Field set to 0 MUST be considered as multicast
+   and MUST be processed as if the P-Field is set to 1.
+
+14.  IANA Considerations
+
+   IANA has made changes under the "Internet Control Message Protocol
+   version 6 (ICMPv6) Parameters" [IANA.ICMP] and "Routing Protocol for
+   Low Power and Lossy Networks (RPL)" [IANA.RPL] registry groupings;
+   see details in the subsections that follow.
+
+14.1.  New P-Field Values Registry
+
+   IANA has created a new "P-Field Values" registry under the "Internet
+   Control Message Protocol version 6 (ICMPv6) Parameters" registry
+   group to store the expression of the RATInd as a P-Field.
+
+   The registration procedure is Standards Action [RFC8126].  The
+   initial allocations are as indicated in Table 2:
+
+       +-------+--------------------------------------+-----------+
+       | Value | Registered Address Type Indicator    | Reference |
+       +-------+--------------------------------------+-----------+
+       | 0     | Registration for a Unicast Address   | RFC 9685  |
+       +-------+--------------------------------------+-----------+
+       | 1     | Registration for a Multicast Address | RFC 9685  |
+       +-------+--------------------------------------+-----------+
+       | 2     | Registration for an Anycast Address  | RFC 9685  |
+       +-------+--------------------------------------+-----------+
+       | 3     | Unassigned                           | RFC 9685  |
+       +-------+--------------------------------------+-----------+
+
+                     Table 2: P-Field Values Registry
+
+14.2.  New EDAR Message Flags Registry
+
+   IANA has created a new "EDAR Message Flags" registry under the
+   "Internet Control Message Protocol version 6 (ICMPv6) Parameters"
+   registry group.
+
+   The registration procedure is IETF Review or IESG Approval [RFC8126].
+   The initial allocations are as indicated in Table 3:
+
+        +------------+------------------+------------------------+
+        | Bit Number | Meaning          | Reference              |
+        +------------+------------------+------------------------+
+        | 0-1        | P-Field (2 bits) | RFC 9685, Section 14.1 |
+        +------------+------------------+------------------------+
+        | 2-7        | Unassigned       |                        |
+        +------------+------------------+------------------------+
+
+                   Table 3: EDAR Message Flags Registry
+
+14.3.  New Address Registration Option Flags
+
+   IANA has made an addition to the "Address Registration Option Flags"
+   registry [IANA.ICMP.ARO.FLG] under the "Internet Control Message
+   Protocol version 6 (ICMPv6) Parameters" registry group as indicated
+   in Table 4:
+
+        +------------+------------------+------------------------+
+        | Bit Number | Description      | Reference              |
+        +------------+------------------+------------------------+
+        | 2-3        | P-Field (2 bits) | RFC 9685, Section 14.1 |
+        +------------+------------------+------------------------+
+
+              Table 4: New Address Registration Option Flags
+
+14.4.  New RPL Target Option Flags
+
+   IANA has made an addition to the "RPL Target Option Flags" registry
+   [IANA.RPL.RTO.FLG] under the "Routing Protocol for Low Power and
+   Lossy Networks (RPL)" registry group as indicated in Table 5:
+
+     +------------+------------------------+------------------------+
+     | Bit Number | Capability Description | Reference              |
+     +------------+------------------------+------------------------+
+     | 2-3        | P-Field (2 bits)       | RFC 9685, Section 14.1 |
+     +------------+------------------------+------------------------+
+
+                   Table 5: New RPL Target Option Flags
+
+14.5.  New RPL Mode of Operation
+
+   IANA has made an addition to the "Mode of Operation" registry
+   [IANA.RPL.MOP] under the "Routing Protocol for Low Power and Lossy
+   Networks (RPL)" registry group as indicated in Table 6:
+
+       +-------+---------------------------------------+-----------+
+       | Value | Description                           | Reference |
+       +-------+---------------------------------------+-----------+
+       | 5     | Non-Storing Mode of Operation with    | RFC 9685  |
+       |       | ingress replication multicast support |           |
+       +-------+---------------------------------------+-----------+
+
+                     Table 6: New RPL Mode of Operation
+
+14.6.  New 6LoWPAN Capability Bit
+
+   IANA has made an addition to the "6LoWPAN Capability Bits" registry
+   [IANA.ICMP.6CIO] under the "Internet Control Message Protocol version
+   6 (ICMPv6) Parameters" registry group as indicated in Table 7:
+
+     +-----+--------------------------------------------+-----------+
+     | Bit | Description                                | Reference |
+     +-----+--------------------------------------------+-----------+
+     | 8   | X flag: Registration for Unicast,          | RFC 9685  |
+     |     | Multicast, and Anycast Addresses Supported |           |
+     +-----+--------------------------------------------+-----------+
+
+                   Table 7: New 6LoWPAN Capability Bit
+
+14.7.  New Address Registration Option Status Values
+
+   IANA has made additions to the "Address Registration Option Status
+   Values" registry [IANA.ICMP.ARO.STAT] under the "Internet Control
+   Message Protocol version 6 (ICMPv6) Parameters" registry group as
+   indicated in Table 8:
+
+           +-------+------------------------------+-----------+
+           | Value | Description                  | Reference |
+           +-------+------------------------------+-----------+
+           | 11    | Registration Refresh Request | RFC 9685  |
+           +-------+------------------------------+-----------+
+           | 12    | Invalid Registration         | RFC 9685  |
+           +-------+------------------------------+-----------+
+
+             Table 8: New Address Registration Option Status
+                                  Values
+
+14.8.  New IPv6 Neighbor Discovery Option Format
+
+   IANA has made an addition to the "IPv6 Neighbor Discovery Option
+   Formats" registry under the "Internet Control Message Protocol
+   version 6 (ICMPv6) Parameters" registry group as indicated in
+   Table 9:
+
+              +------+--------------------------+-----------+
+              | Type | Description              | Reference |
+              +------+--------------------------+-----------+
+              | 42   | Consistent Uptime Option | RFC 9685  |
+              +------+--------------------------+-----------+
+
+                Table 9: New IPv6 Neighbor Discovery Option
+                                   Format
+
+15.  References
+
+15.1.  Normative References
+
+   [IANA.ICMP]
+              IANA, "Internet Control Message Protocol version 6
+              (ICMPv6) Parameters",
+              <https://www.iana.org/assignments/icmpv6-parameters>.
+
+   [IANA.ICMP.6CIO]
+              IANA, "6LoWPAN Capability Bits",
+              <https://www.iana.org/assignments/icmpv6-parameters>.
+
+   [IANA.ICMP.ARO.FLG]
+              IANA, "Address Registration Option Flags",
+              <https://www.iana.org/assignments/icmpv6-parameters>.
+
+   [IANA.ICMP.ARO.STAT]
+              IANA, "Address Registration Option Status Values",
+              <https://www.iana.org/assignments/icmpv6-parameters>.
+
+   [IANA.RPL] IANA, "Routing Protocol for Low Power and Lossy Networks
+              (RPL)", <https://www.iana.org/assignments/rpl>.
+
+   [IANA.RPL.MOP]
+              IANA, "Mode of Operation",
+              <https://www.iana.org/assignments/rpl>.
+
+   [IANA.RPL.RTO.FLG]
+              IANA, "RPL Target Option Flags",
+              <https://www.iana.org/assignments/rpl>.
+
+   [RFC2119]  Bradner, S., "Key words for use in RFCs to Indicate
+              Requirement Levels", BCP 14, RFC 2119,
+              DOI 10.17487/RFC2119, March 1997,
+              <https://www.rfc-editor.org/info/rfc2119>.
+
+   [RFC3306]  Haberman, B. and D. Thaler, "Unicast-Prefix-based IPv6
+              Multicast Addresses", RFC 3306, DOI 10.17487/RFC3306,
+              August 2002, <https://www.rfc-editor.org/info/rfc3306>.
+
+   [RFC4291]  Hinden, R. and S. Deering, "IP Version 6 Addressing
+              Architecture", RFC 4291, DOI 10.17487/RFC4291, February
+              2006, <https://www.rfc-editor.org/info/rfc4291>.
+
+   [RFC4861]  Narten, T., Nordmark, E., Simpson, W., and H. Soliman,
+              "Neighbor Discovery for IP version 6 (IPv6)", RFC 4861,
+              DOI 10.17487/RFC4861, September 2007,
+              <https://www.rfc-editor.org/info/rfc4861>.
+
+   [RFC4862]  Thomson, S., Narten, T., and T. Jinmei, "IPv6 Stateless
+              Address Autoconfiguration", RFC 4862,
+              DOI 10.17487/RFC4862, September 2007,
+              <https://www.rfc-editor.org/info/rfc4862>.
+
+   [RFC6550]  Winter, T., Ed., Thubert, P., Ed., Brandt, A., Hui, J.,
+              Kelsey, R., Levis, P., Pister, K., Struik, R., Vasseur,
+              JP., and R. Alexander, "RPL: IPv6 Routing Protocol for
+              Low-Power and Lossy Networks", RFC 6550,
+              DOI 10.17487/RFC6550, March 2012,
+              <https://www.rfc-editor.org/info/rfc6550>.
+
+   [RFC6775]  Shelby, Z., Ed., Chakrabarti, S., Nordmark, E., and C.
+              Bormann, "Neighbor Discovery Optimization for IPv6 over
+              Low-Power Wireless Personal Area Networks (6LoWPANs)",
+              RFC 6775, DOI 10.17487/RFC6775, November 2012,
+              <https://www.rfc-editor.org/info/rfc6775>.
+
+   [RFC7346]  Droms, R., "IPv6 Multicast Address Scopes", RFC 7346,
+              DOI 10.17487/RFC7346, August 2014,
+              <https://www.rfc-editor.org/info/rfc7346>.
+
+   [RFC7400]  Bormann, C., "6LoWPAN-GHC: Generic Header Compression for
+              IPv6 over Low-Power Wireless Personal Area Networks
+              (6LoWPANs)", RFC 7400, DOI 10.17487/RFC7400, November
+              2014, <https://www.rfc-editor.org/info/rfc7400>.
+
+   [RFC8126]  Cotton, M., Leiba, B., and T. Narten, "Guidelines for
+              Writing an IANA Considerations Section in RFCs", BCP 26,
+              RFC 8126, DOI 10.17487/RFC8126, June 2017,
+              <https://www.rfc-editor.org/info/rfc8126>.
+
+   [RFC8174]  Leiba, B., "Ambiguity of Uppercase vs Lowercase in RFC
+              2119 Key Words", BCP 14, RFC 8174, DOI 10.17487/RFC8174,
+              May 2017, <https://www.rfc-editor.org/info/rfc8174>.
+
+   [RFC8200]  Deering, S. and R. Hinden, "Internet Protocol, Version 6
+              (IPv6) Specification", STD 86, RFC 8200,
+              DOI 10.17487/RFC8200, July 2017,
+              <https://www.rfc-editor.org/info/rfc8200>.
+
+   [RFC8505]  Thubert, P., Ed., Nordmark, E., Chakrabarti, S., and C.
+              Perkins, "Registration Extensions for IPv6 over Low-Power
+              Wireless Personal Area Network (6LoWPAN) Neighbor
+              Discovery", RFC 8505, DOI 10.17487/RFC8505, November 2018,
+              <https://www.rfc-editor.org/info/rfc8505>.
+
+   [RFC8928]  Thubert, P., Ed., Sarikaya, B., Sethi, M., and R. Struik,
+              "Address-Protected Neighbor Discovery for Low-Power and
+              Lossy Networks", RFC 8928, DOI 10.17487/RFC8928, November
+              2020, <https://www.rfc-editor.org/info/rfc8928>.
+
+   [RFC9010]  Thubert, P., Ed. and M. Richardson, "Routing for RPL
+              (Routing Protocol for Low-Power and Lossy Networks)
+              Leaves", RFC 9010, DOI 10.17487/RFC9010, April 2021,
+              <https://www.rfc-editor.org/info/rfc9010>.
+
+   [RFC9030]  Thubert, P., Ed., "An Architecture for IPv6 over the Time-
+              Slotted Channel Hopping Mode of IEEE 802.15.4 (6TiSCH)",
+              RFC 9030, DOI 10.17487/RFC9030, May 2021,
+              <https://www.rfc-editor.org/info/rfc9030>.
+
+15.2.  Informative References
+
+   [IEEE-802.11]
+              IEEE, "IEEE Standard for Information Technology--
+              Telecommunications and Information Exchange between
+              Systems - Local and Metropolitan Area Networks--Specific
+              Requirements - Part 11: Wireless LAN Medium Access Control
+              (MAC) and Physical Layer (PHY) Specifications",
+              DOI 10.1109/IEEESTD.2021.9363693, IEEE Std 802.11-2020,
+              <https://ieeexplore.ieee.org/document/9363693>.
+
+   [IEEE-802.15.1]
+              IEEE, "IEEE Standard for Information technology - Local
+              and metropolitan area networks - Specific requirements -
+              Part 15.1a: Wireless Medium Access Control (MAC) and
+              Physical Layer (PHY) specifications for Wireless Personal
+              Area Networks (WPAN)", IEEE Std 802.15.1-2005,
+              DOI 10.1109/IEEESTD.2005.96290,
+              <https://ieeexplore.ieee.org/document/1490827>.
+
+   [IEEE-802.15.4]
+              IEEE, "IEEE Standard for Low-Rate Wireless Networks",
+              DOI 10.1109/IEEESTD.2020.9144691, IEEE Std 802.15.4-2020,
+              <https://ieeexplore.ieee.org/document/9144691>.
+
+   [IPv6-OVER-WIRELESS]
+              Thubert, P., Ed. and M. Richardson, "Architecture and
+              Framework for IPv6 over Non-Broadcast Access", Work in
+              Progress, Internet-Draft, draft-ietf-6man-ipv6-over-
+              wireless-06, 23 May 2024,
+              <https://datatracker.ietf.org/doc/html/draft-ietf-6man-
+              ipv6-over-wireless-06>.
+
+   [MAC-SIGNALING]
+              Thubert, P., Ed., Przygienda, T., and J. Tantsura, "Secure
+              EVPN MAC Signaling", Work in Progress, Internet-Draft,
+              draft-thubert-bess-secure-evpn-mac-signaling-04, 13
+              September 2023, <https://datatracker.ietf.org/doc/html/
+              draft-thubert-bess-secure-evpn-mac-signaling-04>.
+
+   [REGISTRATION]
+              Thubert, P., Ed., "IPv6 Neighbor Discovery Prefix
+              Registration", Work in Progress, Internet-Draft, draft-
+              ietf-6lo-prefix-registration-06, 9 November 2024,
+              <https://datatracker.ietf.org/doc/html/draft-ietf-6lo-
+              prefix-registration-06>.
+
+   [RFC3810]  Vida, R., Ed. and L. Costa, Ed., "Multicast Listener
+              Discovery Version 2 (MLDv2) for IPv6", RFC 3810,
+              DOI 10.17487/RFC3810, June 2004,
+              <https://www.rfc-editor.org/info/rfc3810>.
+
+   [RFC4919]  Kushalnagar, N., Montenegro, G., and C. Schumacher, "IPv6
+              over Low-Power Wireless Personal Area Networks (6LoWPANs):
+              Overview, Assumptions, Problem Statement, and Goals",
+              RFC 4919, DOI 10.17487/RFC4919, August 2007,
+              <https://www.rfc-editor.org/info/rfc4919>.
+
+   [RFC6052]  Bao, C., Huitema, C., Bagnulo, M., Boucadair, M., and X.
+              Li, "IPv6 Addressing of IPv4/IPv6 Translators", RFC 6052,
+              DOI 10.17487/RFC6052, October 2010,
+              <https://www.rfc-editor.org/info/rfc6052>.
+
+   [RFC6282]  Hui, J., Ed. and P. Thubert, "Compression Format for IPv6
+              Datagrams over IEEE 802.15.4-Based Networks", RFC 6282,
+              DOI 10.17487/RFC6282, September 2011,
+              <https://www.rfc-editor.org/info/rfc6282>.
+
+   [RFC6811]  Mohapatra, P., Scudder, J., Ward, D., Bush, R., and R.
+              Austein, "BGP Prefix Origin Validation", RFC 6811,
+              DOI 10.17487/RFC6811, January 2013,
+              <https://www.rfc-editor.org/info/rfc6811>.
+
+   [RFC7731]  Hui, J. and R. Kelsey, "Multicast Protocol for Low-Power
+              and Lossy Networks (MPL)", RFC 7731, DOI 10.17487/RFC7731,
+              February 2016, <https://www.rfc-editor.org/info/rfc7731>.
+
+   [RFC7761]  Fenner, B., Handley, M., Holbrook, H., Kouvelas, I.,
+              Parekh, R., Zhang, Z., and L. Zheng, "Protocol Independent
+              Multicast - Sparse Mode (PIM-SM): Protocol Specification
+              (Revised)", STD 83, RFC 7761, DOI 10.17487/RFC7761, March
+              2016, <https://www.rfc-editor.org/info/rfc7761>.
+
+   [RFC8929]  Thubert, P., Ed., Perkins, C.E., and E. Levy-Abegnoli,
+              "IPv6 Backbone Router", RFC 8929, DOI 10.17487/RFC8929,
+              November 2020, <https://www.rfc-editor.org/info/rfc8929>.
+
+   [RFC9008]  Robles, M.I., Richardson, M., and P. Thubert, "Using RPI
+              Option Type, Routing Header for Source Routes, and IPv6-
+              in-IPv6 Encapsulation in the RPL Data Plane", RFC 9008,
+              DOI 10.17487/RFC9008, April 2021,
+              <https://www.rfc-editor.org/info/rfc9008>.
+
+   [RFC9574]  Rabadan, J., Ed., Sathappan, S., Lin, W., Katiyar, M., and
+              A. Sajassi, "Optimized Ingress Replication Solution for
+              Ethernet VPNs (EVPNs)", RFC 9574, DOI 10.17487/RFC9574,
+              May 2024, <https://www.rfc-editor.org/info/rfc9574>.
+
+   [RIFT]     Przygienda, A., Ed., Head, J., Ed., Sharma, A., Thubert,
+              P., Rijsman, B., and D. Afanasiev, "RIFT: Routing in Fat
+              Trees", Work in Progress, Internet-Draft, draft-ietf-rift-
+              rift-24, 23 May 2024,
+              <https://datatracker.ietf.org/doc/html/draft-ietf-rift-
+              rift-24>.
+
+   [UPDATES-TAG]
+              Kühlewind, M. and S. Krishnan, "Definition of new tags for
+              relations between RFCs", Work in Progress, Internet-Draft,
+              draft-kuehlewind-rswg-updates-tag-02, 8 July 2024,
+              <https://datatracker.ietf.org/doc/html/draft-kuehlewind-
+              rswg-updates-tag-02>.
+
+   [Wi-SUN]   Robert, H., Liu, B., Zhang, M., and C. Perkins, "Wi-SUN
+              FAN Overview", Work in Progress, Internet-Draft, draft-
+              heile-lpwan-wisun-overview-00, 3 July 2017,
+              <https://datatracker.ietf.org/doc/html/draft-heile-lpwan-
+              wisun-overview-00>.
+
+Acknowledgments
+
+   This work is a production of an effective collaboration between the
+   IETF 6lo WG and the Wi-Sun FAN WG.  Thanks to all in both WGs who
+   contributed reviews and productive suggestions, in particular:
+   Carsten Bormann, Paul Duffy, Klaus Hueske, Adnan Rashid, Rahul
+   Jadhav, Gene Falendysz, Don Sturek, Dario Tedeschi, Saurabh Jain, and
+   Chris Hett, with special thanks to Esko Dijk for his useful WGLC
+   reviews and proposed changes.  Also many thanks to Éric Vyncke, Sandy
+   Ginoza, Zaheduzzaman Sarker, Paul Wouters, Roman Danyliw, John
+   Scudder, Dirk Von Hugo, Murray Kucherawy, Kyle Rose, Scott Kelly, and
+   Dan Romascanu for their suggestions and comments during the IETF last
+   call and IESG review cycle.
+
+Author's Address
+
+   Pascal Thubert (editor)
+   06330 Roquefort-les-Pins
+   France
+   Email: pascal.thubert@gmail.com
