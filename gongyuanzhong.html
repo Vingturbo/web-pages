@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+
+<html lang="zh-CN">
+
+<head>
+    <meta charset="UTF-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="icon" href="favicon.png">
+    <link rel="stylesheet" href="info.css">
+    <title>公元钟</title>
+</head>
+
+<body>
+    <canvas id="canvas" width="370" height="166"
+        style="border: 4px solid #FFF;display: block;position: fixed;top: 50%;left: 50%;transform: translate(-50%, -50%);"></canvas>
+    <p>时间倍速:<input id="timer" type="number" value="1.0"></p>
+    <script>
+        var canvas = document.getElementById('canvas');
+        var timer = document.getElementById('timer');
+        var ctx = canvas.getContext('2d');
+        var width = canvas.width;   // 370
+        var height = canvas.height; // 166
+        var total = width * height; // 61420
+
+        // ---------- 1. 初始化全屏绿色（使用 ImageData） ----------
+        var imageData = ctx.createImageData(width, height);
+        var data = imageData.data;
+        for (var i = 0; i < data.length; i += 4) {
+            data[i] = 0;     // R
+            data[i + 1] = 255; // G
+            data[i + 2] = 0;   // B
+            data[i + 3] = 255; // A
+        }
+        ctx.putImageData(imageData, 0, 0);
+
+        // ---------- 2. 生成每个像素的死亡进度（正态分布） ----------
+        var deathTimes = new Float64Array(total);
+        for (var i = 0; i < total; i++) {
+            // Box‑Muller 变换
+            var u1, u2;
+            do {
+                u1 = Math.random();
+            } while (u1 === 0); // 避免 ln(0)
+            u2 = Math.random();
+            var z = Math.sqrt(-2 * Math.log(u1)) * Math.cos(2 * Math.PI * u2);
+            var d = 0.5 + 0.13 * z;
+            // 截断到 [0, 1]
+            if (d < 0) d = 0;
+            if (d > 1) d = 1;
+            deathTimes[i] = d;
+        }
+        // 左上角（索引 0）强制最后熄灭
+        deathTimes[0] = 1.0;
+
+        // ---------- 3. 创建索引数组并按死亡时间排序 ----------
+        var order = new Uint32Array(total);
+        for (var i = 0; i < total; i++) order[i] = i;
+        order.sort(function(a, b) {
+            return deathTimes[a] - deathTimes[b];
+        });
+
+        // ---------- 4. 时间控制 ----------
+        var startTime = Date.now();
+         // 5 天（毫秒）
+        var pointer = 0; // 下一个要熄灭的像素在 order 中的位置
+
+        // ---------- 5. 渲染循环 ----------
+        function update() {
+            var speed = parseFloat(timer.value) || 1.0;
+            var totalDuration = 5 * 24 * 60 * 60 * 1000 / speed;
+            var now = Date.now();
+            var elapsed = now - startTime;
+            var p = elapsed / totalDuration;
+            if (p > 1) p = 1;
+
+            // 将所有“已到期”的像素涂黑
+            while (pointer < total && deathTimes[order[pointer]] <= p) {
+                var idx = order[pointer];
+                var x = idx % width;
+                var y = (idx / width) | 0; // 整数除法
+                var pos = (y * width + x) * 4;
+                data[pos] = 0;
+                data[pos + 1] = 0;
+                data[pos + 2] = 0;
+                // data[pos+3] 保持不变（255）
+                pointer++;
+            }
+            // 将更新后的数据一次性绘制到画布
+            ctx.putImageData(imageData, 0, 0);
+
+            if (p < 1) {
+                requestAnimationFrame(update);
+            }
+        }
+
+        // 启动动画
+        update();
+    </script>
+</body>
+
+</html>
