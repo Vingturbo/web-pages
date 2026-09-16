@@ -1,0 +1,51 @@
+name: CloudflareStableBuild_AND_ReleaseBackup
+on: [workflow_dispatch]
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout_repository
+        uses: actions/checkout@v4
+        with:
+          repository: vingturbo/web-pages
+          path: web-pages
+          submodules: recursive
+          fetch-depth: 0
+
+      - name: upload
+        uses: cloudflare/wrangler-action@v4
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          command: pages deploy ${{ github.workspace }}/web-pages --project-name=vingturbo --branch=main
+
+      - name: 获取变量
+        id: vars
+        run: |
+          cd web-pages
+          echo "sha=$(git rev-parse HEAD)" >> $GITHUB_OUTPUT
+          echo "short_sha=$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
+          echo "date=$(date +%Y%m%d)" >> $GITHUB_OUTPUT
+
+      - name: 打包为 tar.zst
+        run: |
+          BACKUP_NAME="web-pages-${{ steps.vars.outputs.date }}-backup-${{ steps.vars.outputs.sha }}.tar.zst"
+          echo "backup_name=$BACKUP_NAME" >> $GITHUB_ENV
+          tar --zstd -cf "$BACKUP_NAME" ./web-pages
+
+      - name: 创建 Release 并上传备份
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="${{ steps.vars.outputs.date }}-all-backup"
+          
+          gh release delete "$TAG" --yes --cleanup-tag 2>/dev/null || true
+          
+          gh release create "$TAG" \
+            --title "$TAG" \
+            --notes "${{ steps.vars.outputs.sha }}" \
+            "${{ env.backup_name }}"
